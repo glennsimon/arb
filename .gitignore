@@ -1,0 +1,9 @@
+**/node_modules
+**/old_node_modules
+dist/
+.tmp/
+.firebase/
+app.yaml
+**/service-account.json
+**/temp.txt
+**/notify.js
