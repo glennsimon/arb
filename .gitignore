@@ -7,3 +7,4 @@ app.yaml
 **/service-account.json
 **/temp.txt
 **/notify.js
+output-example.json

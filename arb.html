@@ -1,0 +1,69 @@
+<html>
+  <head>
+    <style>
+      * {
+        box-sizing: border-box;
+        position: relative;
+        margin: 0px;
+      }
+    </style>
+  </head>
+  <body>
+    <div class='container'>
+      <div id='goog'></div>
+      <div id='googl'></div>
+      <div id='diff'></div>
+      <div id='pctdiff'></div>
+    </div>
+    <script>
+      // const finnhub = require('finnhub');
+      // const apiKey = finnhub.ApiClient.instance.authentications['api_key'];
+      // apiKey.apikey = 'c6aifiiad3id24fn2m00';
+      // const finnhubClient = new finnhub.DefaultApi();
+
+      // finnhubClient.stockCandles('GOOG', 'D', 1590988249, 1591852249, (error, data, response) => {
+      //   console.log(data);
+      // });
+
+      const socket = new WebSocket('wss://ws.finnhub.io?token=c6aifiiad3id24fn2m00');
+      const goog = document.getElementById('goog');
+      const googl = document.getElementById('googl');
+      const diff = document.getElementById('diff');
+      const pctdiff = document.getElementById('pctdiff');
+      let lastGoog;
+      let lastGoogl;
+
+      socket.addEventListener('open', (event) => {
+        socket.send(JSON.stringify({'type':'subscribe', 'symbol':'GOOG'}));
+        socket.send(JSON.stringify({'type':'subscribe', 'symbol':'GOOGL'}));
+      });
+
+      socket.addEventListener('message', (event) => {
+        // goog.innerText += event.data + '\n';
+        const parsedObj = JSON.parse(event.data);
+        // const incoming = event.data;
+        if (parsedObj.data) {
+          for (const obj of parsedObj.data) {
+            // const parsedObj = JSON.parse(obj);
+            if (obj.s === 'GOOG') {
+              goog.innerText = 'GOOG: ' + obj.p;
+              lastGoog = obj.p;
+            }
+            if (obj.s === 'GOOGL') {
+              googl.innerText = 'GOOGL: ' + obj.p;
+              lastGoogl = obj.p;
+            }
+            diff.innerText = '' + (lastGoog - lastGoogl);
+            pctdiff.innerText = '' + (100 * (lastGoog - lastGoogl) / lastGoog) + '%';
+          }
+      } else {
+          console.log('non-data object: ' + event.data);
+        }
+      });
+
+      const unsubscribe = (symbol) => {
+        socket.send(JSON.stringify({'type':'unsubscribe', 'symbol': symbol}));
+      }
+    </script>
+  </body>
+</html>
