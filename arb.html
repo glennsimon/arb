@@ -41,10 +41,8 @@
       socket.addEventListener('message', (event) => {
         // goog.innerText += event.data + '\n';
         const parsedObj = JSON.parse(event.data);
-        // const incoming = event.data;
         if (parsedObj.data) {
           for (const obj of parsedObj.data) {
-            // const parsedObj = JSON.parse(obj);
             if (obj.s === 'GOOG') {
               goog.innerText = 'GOOG: ' + obj.p;
               lastGoog = obj.p;
