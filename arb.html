@@ -14,16 +14,82 @@
       <div id='googl'></div>
       <div id='diff'></div>
       <div id='pctdiff'></div>
+      <canvas id='graph'></canvas>
     </div>
     <script>
-      // const finnhub = require('finnhub');
-      // const apiKey = finnhub.ApiClient.instance.authentications['api_key'];
-      // apiKey.apikey = 'c6aifiiad3id24fn2m00';
-      // const finnhubClient = new finnhub.DefaultApi();
+      // define data set
+      const candleBaseUrl = 'https://finnhub.io/api/v1/stock/candle?symbol=';
+      const now = Math.floor(Date.now() / 1000);
+      const aWeekAgo = now - 7 * 24 * 60 * 60;
+      const resolution = '5';
+      const symbols = ['GOOG', 'GOOGL'];
 
-      // finnhubClient.stockCandles('GOOG', 'D', 1590988249, 1591852249, (error, data, response) => {
-      //   console.log(data);
-      // });
+      // empty array for results
+      const results = {};
+
+      // get the data
+      for (const symbol of symbols) {
+        fetch(candleBaseUrl + symbol + '&resolution=' + resolution + '&from=' + aWeekAgo + '&to=' + now + '&token=c6aifiiad3id24fn2m00')
+        .then((response) => {
+          return response.json();
+        })
+        .then((obj) => {
+          // load the results array
+          console.log(obj);
+          results[symbol] = {};
+          for (let index = 0; index < obj.t.length; index++) {
+            results[symbol][obj.t[index]] = {};
+            results[symbol][obj.t[index]].low = obj.l[index];
+            results[symbol][obj.t[index]].high = obj.h[index];
+          }
+          if (symbols[0] in results && symbols[1] in results) {
+            processData();
+          }
+        })
+        .catch((error) => {
+          console.error('Error fetching data: ', error);
+        });
+      }
+
+      const processData = () => {
+        for (const date in results[symbols[0]]) {
+          if ( !(date in results[symbols[1]]) ) {
+            delete results[symbols[0]][date];
+          }
+        }
+        for (const date in results[symbols[1]]) {
+          if ( !(date in results[symbols[0]]) ) {
+            delete results[symbols[1]][date];
+          }
+        }
+        drawGraph();
+      }
+      
+      const graph = document.getElementById('graph');
+      graph.width = 500;
+      graph.height = 500;
+
+      const drawGraph = () => {
+        console.log(results);
+
+      }
+      // ctxWaterBub.beginPath();
+      // ctxWaterBub.moveTo(0, yOffset);
+      // ctxWaterBub.lineTo(960, yOffset);
+      // ctxWaterBub.lineTo(960, 340);
+      // ctxWaterBub.lineTo(0, 340);
+      // ctxWaterBub.lineTo(0, yOffset);
+
+      // ctxWaterBub.fillStyle = 'rgba(0,0,255,.1)';
+      // ctxWaterBub.shadowColor = 'rgba(0,0,255,1)';
+      // ctxWaterBub.shadowBlur = 5;
+      // ctxWaterBub.fill();
+
+      // ctxLeaders.beginPath();
+      // ctxLeaders.textBaseline = 'top';
+      // ctxLeaders.textAlign = 'center';
+      // ctxLeaders.font = '25px sans-serif';
+      // ctxLeaders.fillText('FREEZER', 480, 30);
 
       const socket = new WebSocket('wss://ws.finnhub.io?token=c6aifiiad3id24fn2m00');
       const goog = document.getElementById('goog');
