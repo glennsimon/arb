@@ -83,13 +83,15 @@
       const candleBaseUrl = 'https://finnhub.io/api/v1/stock/candle?symbol=';
       const secondsPerWeek = 7 * 24 * 60 * 60;
       const aWeekAgo = now - secondsPerWeek;
-      const resolution = '5';
-      const resolutionInSeconds = parseInt(resolution) * 60;
+
+      // allowable resolutions: 1, 5, 15, 30, 60, D, W, M - all strings, numbers represent minutes
+      const resolution = '1';
+
+      // two symbols to compare - program written specifically to compare GOOG and GOOGL
       const symbols = ['GOOG', 'GOOGL'];
 
       // empty array for results
       const results = {};
-      const graphData = [];
 
       // get the data
       for (const symbol of symbols) {
@@ -99,17 +101,10 @@
         })
         .then((obj) => {
           // load the results array
-          console.log(obj);
-          results[symbol] = {};
-          for (let index = 0; index < obj.t.length; index++) {
-            results[symbol][obj.t[index]] = {};
-            results[symbol][obj.t[index]].low = obj.l[index];
-            results[symbol][obj.t[index]].high = obj.h[index];
-            results[symbol][obj.t[index]].open = obj.o[index];
-            results[symbol][obj.t[index]].close = obj.c[index];
-            results[symbol][obj.t[index]].date = obj.t[index];
-          }
+          // console.log(obj);
+          results[symbol] = obj;
           if (symbols[0] in results && symbols[1] in results) {
+            // console.log(results);
             processData();
           }
         })
@@ -120,38 +115,38 @@
 
       let earliestDate = now;
       let latestDate = now;
-      let maxY = 0;
-      let minY = 0;
 
       const processData = () => {
-        for (const date in results[symbols[0]]) {
-          if ( !(date in results[symbols[1]]) ) {
-            delete results[symbols[0]][date];
+        // eliminate datapoints that do not contain both GOOG and GOOGL data
+        for (let index = results[symbols[0]].t.length - 1; index > -1; index--) {
+          if (!results[symbols[1]].t.includes(results[symbols[0]].t[index])) {
+            for (elem in results[symbols[0]]) {
+              if (typeof(results[symbols[0]][elem]) === 'object') {
+                results[symbols[0]][elem].splice(index, 1);
+              }
+            }
           }
         }
-        for (const date in results[symbols[1]]) {
-          if ( !(date in results[symbols[0]]) ) {
-            delete results[symbols[1]][date];
-          } else {
-            earliestDate = date < earliestDate ? date : earliestDate;
-            latestDate = date > latestDate ? date : latestDate;
+        for (let index = results[symbols[1]].t.length - 1; index > -1; index--) {
+          if (!results[symbols[0]].t.includes(results[symbols[1]].t[index])) {
+            for (elem in results[symbols[1]]) {
+              if (typeof(results[symbols[1]][elem]) === 'object') {
+                results[symbols[1]][elem].splice(index, 1);
+              }
+            }
           }
         }
-        for (const date in results[symbols[0]]) {
-          // graphData[date - earliestDate] = {};
-          // graphData[date - earliestDate].maxDiff = results[symbols[0]][date].high - results[symbols[1]][date].low;
-          // graphData[date - earliestDate].minDiff = results[symbols[0]][date].low - results[symbols[1]][date].high;
-          const dataObj = {};
-          dataObj[date] = {};
-          let maxDiff = results[symbols[0]][date].high - results[symbols[1]][date].low;
-          let minDiff = results[symbols[0]][date].low - results[symbols[1]][date].high;
-          maxY = maxDiff > maxY ? maxDiff : maxY;
-          minY = minDiff < minY ? minDiff : minY;
-          dataObj[date].maxDiff = maxDiff;
-          dataObj[date].minDiff = minDiff;
-          graphData.push(dataObj);
+        // console.log(results);
+
+        // reduce data to only the datapoints of interest
+        for (const symbol of symbols) {
+          for (elem in results[symbol]) {
+            if (typeof(results[symbol][elem]) === 'object') {
+              results[symbol][elem].splice(0, results[symbol][elem].length - 60);
+            }
+          }
         }
-        graphData.sort();
+        console.log(results);
         drawGraph();
       }
       
@@ -161,10 +156,43 @@
       const ctxGraph = graph.getContext('2d');
 
       const pixelsPerDiv = 400 / 60;
+      const graphData = {};
 
       let x = 50 + pixelsPerDiv;
       const drawGraph = () => {
-        // console.log(results);
+        let maxY = 0;
+        let minY = 0;
+
+        graphData.timeStamp = [];
+        graphData.avgRange = [];
+        graphData.avgDiff = [];
+        graphData.lowDiff = [];
+        graphData.highDiff = [];
+        for (let index = 0; index < results[symbols[0]].t.length; index++) {
+          const range = [];
+          range[symbols[0]] = results[symbols[0]].h[index] - results[symbols[0]].l[index];
+          range[symbols[1]] = results[symbols[1]].h[index] - results[symbols[1]].l[index];
+
+          graphData.timeStamp[index] = results[symbols[0]].t[index];
+          graphData.avgRange[index] = (range[symbols[0]] + range[symbols[1]]) / 2;
+          graphData.avgDiff[index] = (
+            results[symbols[0]].h[index] - results[symbols[1]].h[index] +
+            results[symbols[0]].l[index] - results[symbols[1]].l[index]
+          ) / 2;
+          const highY = graphData.avgDiff[index] + graphData.avgRange[index] / 2;
+          const lowY = graphData.avgDiff[index] - graphData.avgRange[index] / 2
+          graphData.lowDiff[index] = lowY;
+          graphData.highDiff[index] = highY;
+          maxY = highY > maxY ? highY : maxY;
+          minY = lowY < minY ? lowY : minY;
+        }
+
+        const graphMinY = Math.floor(minY);
+        const graphMaxY = Math.ceil(maxY);
+        const graphRange = graphMaxY - graphMinY;
+        const graphZeroRatio = graphMinY < 0 ? graphMaxY / graphRange : 1;
+        const yPxPerDollar = 400 / graphRange;
+
         console.log(graphData);
         ctxGraph.beginPath();
         ctxGraph.moveTo(50, 450);
@@ -172,13 +200,21 @@
         ctxGraph.moveTo(50, 450);
         ctxGraph.lineTo(450, 450);
         ctxGraph.stroke();
+        const ticks = graphMaxY - graphMinY + 1;
+        for (let tick = 0; tick < ticks; tick++) {
+          ctxGraph.moveTo(45, 50 + tick * yPxPerDollar);
+          ctxGraph.lineTo(50, 50 + tick * yPxPerDollar);
+          ctxGraph.stroke();
+          ctxGraph.textBaseline = 'middle';
+          ctxGraph.textAlign = 'right';
+          ctxGraph.font = '15px sans-serif';
+          ctxGraph.fillText('' + graphMaxY - tick, 40, 50 + tick * yPxPerDollar);
+        }
 
-        const yPxPerDollar = 400 / maxY;
         ctxGraph.strokeStyle = 'blue';
-        for (let index = graphData.length - 60; index < graphData.length; index++) {
-          const date = Object.keys(graphData[index])[0];
-          const yLow = 450 - graphData[index][date].minDiff * yPxPerDollar;
-          const yHigh = 450 - graphData[index][date].maxDiff * yPxPerDollar;
+        for (let index = 0; index < graphData.timeStamp.length; index++) {
+          const yLow = 50 + (graphZeroRatio * graphRange - graphData.lowDiff[index]) * yPxPerDollar ;
+          const yHigh = 50 + (graphZeroRatio * graphRange - graphData.highDiff[index]) * yPxPerDollar ;
           ctxGraph.beginPath();
           ctxGraph.moveTo(x, yLow);
           ctxGraph.lineTo(x, yHigh);
