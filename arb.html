@@ -81,8 +81,8 @@
 
       // define data set
       const candleBaseUrl = 'https://finnhub.io/api/v1/stock/candle?symbol=';
-      const secondsPerWeek = 7 * 24 * 60 * 60;
-      const aWeekAgo = now - secondsPerWeek;
+      const secondsPer30Days = 30 * 24 * 60 * 60;
+      const thirtyDaysAgo = now - secondsPer30Days;
 
       // allowable resolutions: 1, 5, 15, 30, 60, D, W, M - all strings, numbers represent minutes
       const resolution = '1';
@@ -93,9 +93,9 @@
       // empty array for results
       const results = {};
 
-      // get the data
+      // fetch the data from finnhub
       for (const symbol of symbols) {
-        fetch(candleBaseUrl + symbol + '&resolution=' + resolution + '&from=' + aWeekAgo + '&to=' + now + '&token=c6aifiiad3id24fn2m00')
+        fetch(candleBaseUrl + symbol + '&resolution=' + resolution + '&from=' + thirtyDaysAgo + '&to=' + now + '&token=c6aifiiad3id24fn2m00')
         .then((response) => {
           return response.json();
         })
@@ -113,13 +113,32 @@
         });
       }
 
-      let earliestDate = now;
-      let latestDate = now;
+      // declare and initialize graphData object
+      const graphData = {};
+      graphData.timeStamp = [];
+      graphData.lowDiff = [];
+      graphData.highDiff = [];
 
+      // declare range variables for Y axis
+      let maxY = 0;
+      let minY = 0;
+
+      // Performs multiple processing steps to filter the data and load graphData object
       const processData = () => {
-        // eliminate datapoints that do not contain both GOOG and GOOGL data
+        // Eliminate datapoints that do not contain both GOOG and GOOGL data
+        // and are outside of normal exchange hours.
+        // This only works in the Pacific time zone because of the hours and
+        // minutes specified in the culling filter.
         for (let index = results[symbols[0]].t.length - 1; index > -1; index--) {
-          if (!results[symbols[1]].t.includes(results[symbols[0]].t[index])) {
+          const dateInSeconds = results[symbols[0]].t[index];
+          const date = new Date(dateInSeconds * 1000);
+          // culling filter
+          if ((date.getHours() < 7 && date.getMinutes() < 31) ||
+            date.getHours() < 6 ||
+            (date.getHours() > 12 && date.getMinutes() > 0) ||
+            !results[symbols[1]].t.includes(dateInSeconds) || 
+            date.getDay() === 0 ||
+            date.getDay() === 6) {
             for (elem in results[symbols[0]]) {
               if (typeof(results[symbols[0]][elem]) === 'object') {
                 results[symbols[0]][elem].splice(index, 1);
@@ -128,7 +147,15 @@
           }
         }
         for (let index = results[symbols[1]].t.length - 1; index > -1; index--) {
-          if (!results[symbols[0]].t.includes(results[symbols[1]].t[index])) {
+          const dateInSeconds = results[symbols[1]].t[index];
+          const date = new Date(dateInSeconds * 1000);
+          // culling filter
+          if ((date.getHours() < 7 && date.getMinutes() < 31) ||
+            date.getHours() < 6 ||
+            (date.getHours() > 12 && date.getMinutes() > 0) ||
+            !results[symbols[0]].t.includes(dateInSeconds) || 
+            date.getDay() === 0 ||
+            date.getDay() === 6) {
             for (elem in results[symbols[1]]) {
               if (typeof(results[symbols[1]][elem]) === 'object') {
                 results[symbols[1]][elem].splice(index, 1);
@@ -138,15 +165,84 @@
         }
         // console.log(results);
 
-        // reduce data to only the datapoints of interest
-        for (const symbol of symbols) {
-          for (elem in results[symbol]) {
-            if (typeof(results[symbol][elem]) === 'object') {
-              results[symbol][elem].splice(0, results[symbol][elem].length - 60);
-            }
+        // combine month data into days
+        let dayIndex = 0;
+
+        const dayObj = {};
+        dayObj.timeStamps = [];
+        dayObj[symbols[0]] = [];
+        dayObj[symbols[0]].high = [];
+        dayObj[symbols[0]].low = [];
+        dayObj[symbols[1]] = [];
+        dayObj[symbols[1]].high = [];
+        dayObj[symbols[1]].low = [];
+
+        for (let index = 0; index < results[symbols[0]].t.length; index++) {
+          const dateInSeconds = results[symbols[0]].t[index];
+          const date = new Date(dateInSeconds * 1000);
+          const day = date.getDay();
+          if (index + 1 === results[symbols[0]].t.length ||
+            day !== new Date(results[symbols[0]].t[index + 1] * 1000).getDay()) {
+            dayObj.timeStamps.push(results[symbols[0]].t.slice(dayIndex, index + 1));
+            dayObj[symbols[0]].high.push(results[symbols[0]].h.slice(dayIndex, index + 1));
+            dayObj[symbols[0]].low.push(results[symbols[0]].l.slice(dayIndex, index + 1));
+            dayObj[symbols[1]].high.push(results[symbols[1]].h.slice(dayIndex, index + 1));
+            dayObj[symbols[1]].low.push(results[symbols[1]].l.slice(dayIndex, index + 1));
+            dayIndex = index + 1;
           }
         }
-        console.log(results);
+        console.log(dayObj);
+
+        // set dailyDataLength to all but the last day
+        const dailyDataLength = dayObj.timeStamps.length - 1;
+
+        // Load graphData object with data from all but the last day
+        for (let index = 0; index < dailyDataLength; index++) {
+          const range = [];
+          graphData.timeStamp[index] = dayObj.timeStamps[index][0];
+
+          const minMaxDiff = {};
+          minMaxDiff.highDiff = [];
+          minMaxDiff.lowDiff = [];
+          for (let minuteIdx = 0; minuteIdx < dayObj.timeStamps[index].length; minuteIdx++) {
+            minMaxDiff.highDiff[minuteIdx] = dayObj[symbols[0]].high[index][minuteIdx] - dayObj[symbols[1]].low[index][minuteIdx];
+            minMaxDiff.lowDiff[minuteIdx] = dayObj[symbols[0]].low[index][minuteIdx] - dayObj[symbols[1]].high[index][minuteIdx];
+          }
+          const highY = Math.max(...minMaxDiff.highDiff);
+          const lowY = Math.min(...minMaxDiff.lowDiff);
+          graphData.highDiff[index] = highY;
+          graphData.lowDiff[index] = lowY;
+
+          maxY = highY > maxY ? highY : maxY;
+          minY = lowY < minY ? lowY : minY;
+        }
+
+        // // Load graphData object with hourly data from the last day, except for the last hour
+
+        // // set hourlyDataLength to the length of the last day data minus the last hour or
+        // // zero if there is less than one hour of data for the last day
+        // const hourlyDataLength = dayObj[symbols[0]][-1].length > 60 ? dayObj[symbols[0]][-1].length - 61 : 0;
+        // for (let index = 0; index < hourlyDataLength; index++) {
+        //   const range = [];
+        //   graphData.timeStamp[index] = dayObj.timeStamps[-1][index];
+
+        //   const minMaxDiff = {};
+        //   minMaxDiff.highDiff = [];
+        //   minMaxDiff.lowDiff = [];
+        //   for (let minuteIdx = 0; minuteIdx < dayObj.timeStamps[index].length; minuteIdx++) {
+        //     minMaxDiff.highDiff[minuteIdx] = dayObj[symbols[0]].high[index][minuteIdx] - dayObj[symbols[1]].low[index][minuteIdx];
+        //     minMaxDiff.lowDiff[minuteIdx] = dayObj[symbols[0]].low[index][minuteIdx] - dayObj[symbols[1]].high[index][minuteIdx];
+        //   }
+        //   const highY = Math.max(...minMaxDiff.highDiff);
+        //   const lowY = Math.min(...minMaxDiff.lowDiff);
+        //   graphData.highDiff[index] = highY;
+        //   graphData.lowDiff[index] = lowY;
+
+        //   maxY = highY > maxY ? highY : maxY;
+        //   minY = lowY < minY ? lowY : minY;
+        // }
+        // // console.log(graphData);
+
         drawGraph();
       }
       
@@ -155,71 +251,44 @@
       graph.height = 500;
       const ctxGraph = graph.getContext('2d');
 
-      const pixelsPerDiv = 400 / 60;
-      const graphData = {};
-
-      let x = 50 + pixelsPerDiv;
       const drawGraph = () => {
-        let maxY = 0;
-        let minY = 0;
-
-        graphData.timeStamp = [];
-        graphData.avgRange = [];
-        graphData.avgDiff = [];
-        graphData.lowDiff = [];
-        graphData.highDiff = [];
-        for (let index = 0; index < results[symbols[0]].t.length; index++) {
-          const range = [];
-          range[symbols[0]] = results[symbols[0]].h[index] - results[symbols[0]].l[index];
-          range[symbols[1]] = results[symbols[1]].h[index] - results[symbols[1]].l[index];
-
-          graphData.timeStamp[index] = results[symbols[0]].t[index];
-          graphData.avgRange[index] = (range[symbols[0]] + range[symbols[1]]) / 2;
-          graphData.avgDiff[index] = (
-            results[symbols[0]].h[index] - results[symbols[1]].h[index] +
-            results[symbols[0]].l[index] - results[symbols[1]].l[index]
-          ) / 2;
-          const highY = graphData.avgDiff[index] + graphData.avgRange[index] / 2;
-          const lowY = graphData.avgDiff[index] - graphData.avgRange[index] / 2
-          graphData.lowDiff[index] = lowY;
-          graphData.highDiff[index] = highY;
-          maxY = highY > maxY ? highY : maxY;
-          minY = lowY < minY ? lowY : minY;
-        }
-
-        const graphMinY = Math.floor(minY);
-        const graphMaxY = Math.ceil(maxY);
+        const xPixelsPerDiv = 400 / graphData.timeStamp.length;
+        let x = 50 + xPixelsPerDiv;
+  
+        const graphMinY = 10 * Math.floor(minY / 10);
+        const graphMaxY = 10 * Math.ceil(maxY / 10);
         const graphRange = graphMaxY - graphMinY;
         const graphZeroRatio = graphMinY < 0 ? graphMaxY / graphRange : 1;
         const yPxPerDollar = 400 / graphRange;
 
-        console.log(graphData);
         ctxGraph.beginPath();
         ctxGraph.moveTo(50, 450);
         ctxGraph.lineTo(50, 50);
-        ctxGraph.moveTo(50, 450);
-        ctxGraph.lineTo(450, 450);
+        ctxGraph.moveTo(50, 50 + 400 * graphZeroRatio);
+        ctxGraph.lineTo(450, 50 + 400 * graphZeroRatio);
         ctxGraph.stroke();
         const ticks = graphMaxY - graphMinY + 1;
         for (let tick = 0; tick < ticks; tick++) {
-          ctxGraph.moveTo(45, 50 + tick * yPxPerDollar);
-          ctxGraph.lineTo(50, 50 + tick * yPxPerDollar);
-          ctxGraph.stroke();
-          ctxGraph.textBaseline = 'middle';
-          ctxGraph.textAlign = 'right';
-          ctxGraph.font = '15px sans-serif';
-          ctxGraph.fillText('' + graphMaxY - tick, 40, 50 + tick * yPxPerDollar);
+          if (tick % 10 === 0) {
+            ctxGraph.moveTo(45, 50 + tick * yPxPerDollar);
+            ctxGraph.lineTo(50, 50 + tick * yPxPerDollar);
+            ctxGraph.stroke();
+            ctxGraph.textBaseline = 'middle';
+            ctxGraph.textAlign = 'right';
+            ctxGraph.font = '15px sans-serif';
+            ctxGraph.fillText('' + graphMaxY - tick, 40, 50 + tick * yPxPerDollar);
+          }
         }
 
-        ctxGraph.strokeStyle = 'blue';
         for (let index = 0; index < graphData.timeStamp.length; index++) {
+          ctxGraph.strokeStyle = 'blue';
           const yLow = 50 + (graphZeroRatio * graphRange - graphData.lowDiff[index]) * yPxPerDollar ;
           const yHigh = 50 + (graphZeroRatio * graphRange - graphData.highDiff[index]) * yPxPerDollar ;
           ctxGraph.beginPath();
           ctxGraph.moveTo(x, yLow);
           ctxGraph.lineTo(x, yHigh);
           ctxGraph.stroke();
-          x += pixelsPerDiv;
+          x += xPixelsPerDiv;
         }
       }
     </script>
