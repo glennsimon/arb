@@ -123,90 +123,81 @@
       let maxY = 0;
       let minY = 0;
 
+      // Eliminate data elements from symbolA data that are not included
+      // in symbolB data, and are outside of normal exchange hours.
+      // This only works in the Pacific time zone because of the hours and
+      // minutes specified in the culling filter.
+      const cullSpurious = (symbolA, symbolB) => {
+        for (let index = results[symbolA].t.length - 1; index > -1; index--) {
+          const dateInSeconds = results[symbolA].t[index];
+          const date = new Date(dateInSeconds * 1000);
+          // culling filter
+          if ((date.getHours() < 7 && date.getMinutes() < 31) ||
+            date.getHours() < 6 ||
+            (date.getHours() > 12 && date.getMinutes() > 0) ||
+            !results[symbolB].t.includes(dateInSeconds) || 
+            date.getDay() === 0 ||
+            date.getDay() === 6) {
+            for (elem in results[symbolA]) {
+              if (typeof(results[symbolA][elem]) === 'object') {
+                results[symbolA][elem].splice(index, 1);
+              }
+            }
+          }
+        }
+      }
+
       // Performs multiple processing steps to filter the data and load graphData object
       const processData = () => {
-        // Eliminate datapoints that do not contain both GOOG and GOOGL data
-        // and are outside of normal exchange hours.
-        // This only works in the Pacific time zone because of the hours and
-        // minutes specified in the culling filter.
-        for (let index = results[symbols[0]].t.length - 1; index > -1; index--) {
-          const dateInSeconds = results[symbols[0]].t[index];
-          const date = new Date(dateInSeconds * 1000);
-          // culling filter
-          if ((date.getHours() < 7 && date.getMinutes() < 31) ||
-            date.getHours() < 6 ||
-            (date.getHours() > 12 && date.getMinutes() > 0) ||
-            !results[symbols[1]].t.includes(dateInSeconds) || 
-            date.getDay() === 0 ||
-            date.getDay() === 6) {
-            for (elem in results[symbols[0]]) {
-              if (typeof(results[symbols[0]][elem]) === 'object') {
-                results[symbols[0]][elem].splice(index, 1);
-              }
-            }
-          }
-        }
-        for (let index = results[symbols[1]].t.length - 1; index > -1; index--) {
-          const dateInSeconds = results[symbols[1]].t[index];
-          const date = new Date(dateInSeconds * 1000);
-          // culling filter
-          if ((date.getHours() < 7 && date.getMinutes() < 31) ||
-            date.getHours() < 6 ||
-            (date.getHours() > 12 && date.getMinutes() > 0) ||
-            !results[symbols[0]].t.includes(dateInSeconds) || 
-            date.getDay() === 0 ||
-            date.getDay() === 6) {
-            for (elem in results[symbols[1]]) {
-              if (typeof(results[symbols[1]][elem]) === 'object') {
-                results[symbols[1]][elem].splice(index, 1);
-              }
-            }
-          }
-        }
-        // console.log(results);
+        cullSpurious(symbols[0], symbols[1]);
+        cullSpurious(symbols[1], symbols[0]);
+
+        console.log(results);
 
         // combine month data into days
         let dayIndex = 0;
+        let prevDayIndex = 0;
+        let currentDay = new Date(results[symbols[0]].t[0] * 1000).getDay();
 
-        const dayObj = {};
-        dayObj.timeStamps = [];
-        dayObj[symbols[0]] = [];
-        dayObj[symbols[0]].high = [];
-        dayObj[symbols[0]].low = [];
-        dayObj[symbols[1]] = [];
-        dayObj[symbols[1]].high = [];
-        dayObj[symbols[1]].low = [];
+        const daysObj = {};
+        daysObj.timeStamps = [];
+        daysObj[symbols[0]] = [];
+        daysObj[symbols[0]].high = [];
+        daysObj[symbols[0]].low = [];
+        daysObj[symbols[1]] = [];
+        daysObj[symbols[1]].high = [];
+        daysObj[symbols[1]].low = [];
 
-        for (let index = 0; index < results[symbols[0]].t.length; index++) {
-          const dateInSeconds = results[symbols[0]].t[index];
-          const date = new Date(dateInSeconds * 1000);
-          const day = date.getDay();
-          if (index + 1 === results[symbols[0]].t.length ||
-            day !== new Date(results[symbols[0]].t[index + 1] * 1000).getDay()) {
-            dayObj.timeStamps.push(results[symbols[0]].t.slice(dayIndex, index + 1));
-            dayObj[symbols[0]].high.push(results[symbols[0]].h.slice(dayIndex, index + 1));
-            dayObj[symbols[0]].low.push(results[symbols[0]].l.slice(dayIndex, index + 1));
-            dayObj[symbols[1]].high.push(results[symbols[1]].h.slice(dayIndex, index + 1));
-            dayObj[symbols[1]].low.push(results[symbols[1]].l.slice(dayIndex, index + 1));
-            dayIndex = index + 1;
+        for (dateInSeconds of results[symbols[0]].t) {
+          const day = new Date(dateInSeconds * 1000).getDay();
+          if (day !== currentDay || dateInSeconds === results[symbols[0]].t.slice(-1)[0]) {
+            daysObj.timeStamps.push(results[symbols[0]].t.slice(prevDayIndex, dayIndex));
+            daysObj[symbols[0]].high.push(results[symbols[0]].h.slice(prevDayIndex, dayIndex));
+            daysObj[symbols[0]].low.push(results[symbols[0]].l.slice(prevDayIndex, dayIndex));
+            daysObj[symbols[1]].high.push(results[symbols[1]].h.slice(prevDayIndex, dayIndex));
+            daysObj[symbols[1]].low.push(results[symbols[1]].l.slice(prevDayIndex, dayIndex));
+            currentDay = day;
+            prevDayIndex = dayIndex;
           }
+          dayIndex++;
         }
-        console.log(dayObj);
+
+        console.log(daysObj);
 
         // set dailyDataLength to all but the last day
-        const dailyDataLength = dayObj.timeStamps.length - 1;
+        const dailyDataLength = daysObj.timeStamps.length - 1;
 
         // Load graphData object with data from all but the last day
         for (let index = 0; index < dailyDataLength; index++) {
           const range = [];
-          graphData.timeStamp[index] = dayObj.timeStamps[index][0];
+          graphData.timeStamp[index] = daysObj.timeStamps[index][0];
 
           const minMaxDiff = {};
           minMaxDiff.highDiff = [];
           minMaxDiff.lowDiff = [];
-          for (let minuteIdx = 0; minuteIdx < dayObj.timeStamps[index].length; minuteIdx++) {
-            minMaxDiff.highDiff[minuteIdx] = dayObj[symbols[0]].high[index][minuteIdx] - dayObj[symbols[1]].low[index][minuteIdx];
-            minMaxDiff.lowDiff[minuteIdx] = dayObj[symbols[0]].low[index][minuteIdx] - dayObj[symbols[1]].high[index][minuteIdx];
+          for (let minuteIdx = 0; minuteIdx < daysObj.timeStamps[index].length; minuteIdx++) {
+            minMaxDiff.highDiff[minuteIdx] = daysObj[symbols[0]].high[index][minuteIdx] - daysObj[symbols[1]].low[index][minuteIdx];
+            minMaxDiff.lowDiff[minuteIdx] = daysObj[symbols[0]].low[index][minuteIdx] - daysObj[symbols[1]].high[index][minuteIdx];
           }
           const highY = Math.max(...minMaxDiff.highDiff);
           const lowY = Math.min(...minMaxDiff.lowDiff);
@@ -221,17 +212,17 @@
 
         // // set hourlyDataLength to the length of the last day data minus the last hour or
         // // zero if there is less than one hour of data for the last day
-        // const hourlyDataLength = dayObj[symbols[0]][-1].length > 60 ? dayObj[symbols[0]][-1].length - 61 : 0;
+        // const hourlyDataLength = daysObj[symbols[0]][-1].length > 60 ? daysObj[symbols[0]][-1].length - 61 : 0;
         // for (let index = 0; index < hourlyDataLength; index++) {
         //   const range = [];
-        //   graphData.timeStamp[index] = dayObj.timeStamps[-1][index];
+        //   graphData.timeStamp[index] = daysObj.timeStamps[-1][index];
 
         //   const minMaxDiff = {};
         //   minMaxDiff.highDiff = [];
         //   minMaxDiff.lowDiff = [];
-        //   for (let minuteIdx = 0; minuteIdx < dayObj.timeStamps[index].length; minuteIdx++) {
-        //     minMaxDiff.highDiff[minuteIdx] = dayObj[symbols[0]].high[index][minuteIdx] - dayObj[symbols[1]].low[index][minuteIdx];
-        //     minMaxDiff.lowDiff[minuteIdx] = dayObj[symbols[0]].low[index][minuteIdx] - dayObj[symbols[1]].high[index][minuteIdx];
+        //   for (let minuteIdx = 0; minuteIdx < daysObj.timeStamps[index].length; minuteIdx++) {
+        //     minMaxDiff.highDiff[minuteIdx] = daysObj[symbols[0]].high[index][minuteIdx] - daysObj[symbols[1]].low[index][minuteIdx];
+        //     minMaxDiff.lowDiff[minuteIdx] = daysObj[symbols[0]].low[index][minuteIdx] - daysObj[symbols[1]].high[index][minuteIdx];
         //   }
         //   const highY = Math.max(...minMaxDiff.highDiff);
         //   const lowY = Math.min(...minMaxDiff.lowDiff);
