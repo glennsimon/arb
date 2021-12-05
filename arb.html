@@ -113,16 +113,6 @@
         });
       }
 
-      // declare and initialize graphData object
-      const graphData = {};
-      graphData.timeStamp = [];
-      graphData.lowDiff = [];
-      graphData.highDiff = [];
-
-      // declare range variables for Y axis
-      let maxY = 0;
-      let minY = 0;
-
       // Eliminate data elements from symbolA data that are not included
       // in symbolB data, and are outside of normal exchange hours.
       // This only works in the Pacific time zone because of the hours and
@@ -147,12 +137,22 @@
         }
       }
 
+      // declare and initialize graphData object
+      const graphData = {};
+      graphData.timeStamp = [];
+      graphData.lowDiff = [];
+      graphData.highDiff = [];
+
+      // declare range variables for Y axis
+      let maxY = 0;
+      let minY = 0;
+
       // Performs multiple processing steps to filter the data and load graphData object
       const processData = () => {
         cullSpurious(symbols[0], symbols[1]);
         cullSpurious(symbols[1], symbols[0]);
 
-        console.log(results);
+        // console.log(results);
 
         // combine month data into days
         let dayIndex = 0;
@@ -181,68 +181,31 @@
           }
           dayIndex++;
         }
-
         console.log(daysObj);
 
-        // set dailyDataLength to all but the last day
-        const dailyDataLength = daysObj.timeStamps.length - 1;
-
-        // Load graphData object with data from all but the last day
-        for (let index = 0; index < dailyDataLength; index++) {
-          const range = [];
-          graphData.timeStamp[index] = daysObj.timeStamps[index][0];
-
-          const minMaxDiff = {};
-          minMaxDiff.highDiff = [];
-          minMaxDiff.lowDiff = [];
-          for (let minuteIdx = 0; minuteIdx < daysObj.timeStamps[index].length; minuteIdx++) {
-            minMaxDiff.highDiff[minuteIdx] = daysObj[symbols[0]].high[index][minuteIdx] - daysObj[symbols[1]].low[index][minuteIdx];
-            minMaxDiff.lowDiff[minuteIdx] = daysObj[symbols[0]].low[index][minuteIdx] - daysObj[symbols[1]].high[index][minuteIdx];
+        // Load graphData object with data
+        for (let index = 0; index < daysObj.timeStamps.length; index++) {
+          if (index < daysObj.timeStamps.length - 1) {
+            graphData.timeStamp[index] = daysObj.timeStamps[index][0];
+            const highY = Math.max(...daysObj[symbols[0]].high[index].map((n, i) => n - daysObj[symbols[1]].low[index][i]));
+            const lowY = Math.min(...daysObj[symbols[0]].low[index].map((n, i) => n - daysObj[symbols[1]].high[index][i]));
+            maxY = highY > maxY ? highY : maxY;
+            minY = lowY < minY ? lowY : minY;
+            graphData.highDiff[index] = highY;
+            graphData.lowDiff[index] = lowY;
           }
-          const highY = Math.max(...minMaxDiff.highDiff);
-          const lowY = Math.min(...minMaxDiff.lowDiff);
-          graphData.highDiff[index] = highY;
-          graphData.lowDiff[index] = lowY;
-
-          maxY = highY > maxY ? highY : maxY;
-          minY = lowY < minY ? lowY : minY;
+          // else if (daysObj.timeStamps[index] )
         }
-
-        // // Load graphData object with hourly data from the last day, except for the last hour
-
-        // // set hourlyDataLength to the length of the last day data minus the last hour or
-        // // zero if there is less than one hour of data for the last day
-        // const hourlyDataLength = daysObj[symbols[0]][-1].length > 60 ? daysObj[symbols[0]][-1].length - 61 : 0;
-        // for (let index = 0; index < hourlyDataLength; index++) {
-        //   const range = [];
-        //   graphData.timeStamp[index] = daysObj.timeStamps[-1][index];
-
-        //   const minMaxDiff = {};
-        //   minMaxDiff.highDiff = [];
-        //   minMaxDiff.lowDiff = [];
-        //   for (let minuteIdx = 0; minuteIdx < daysObj.timeStamps[index].length; minuteIdx++) {
-        //     minMaxDiff.highDiff[minuteIdx] = daysObj[symbols[0]].high[index][minuteIdx] - daysObj[symbols[1]].low[index][minuteIdx];
-        //     minMaxDiff.lowDiff[minuteIdx] = daysObj[symbols[0]].low[index][minuteIdx] - daysObj[symbols[1]].high[index][minuteIdx];
-        //   }
-        //   const highY = Math.max(...minMaxDiff.highDiff);
-        //   const lowY = Math.min(...minMaxDiff.lowDiff);
-        //   graphData.highDiff[index] = highY;
-        //   graphData.lowDiff[index] = lowY;
-
-        //   maxY = highY > maxY ? highY : maxY;
-        //   minY = lowY < minY ? lowY : minY;
-        // }
-        // // console.log(graphData);
+        console.log(graphData);
 
         drawGraph();
       }
       
-      const graph = document.getElementById('graph');
-      graph.width = 500;
-      graph.height = 500;
-      const ctxGraph = graph.getContext('2d');
-
       const drawGraph = () => {
+        const graph = document.getElementById('graph');
+        graph.width = 500;
+        graph.height = 500;
+        const ctxGraph = graph.getContext('2d');
         const xPixelsPerDiv = 400 / graphData.timeStamp.length;
         let x = 50 + xPixelsPerDiv;
   
