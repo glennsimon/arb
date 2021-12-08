@@ -18,233 +18,289 @@
       <canvas id='graph'></canvas>
     </div>
     <script>
-      // subscribe to web socket GOOG and GOOGL price updates
+      const arb = () => {
+        // two symbols to compare - program written specifically to compare GOOG and GOOGL
+        const symbols = ['GOOG', 'GOOGL'];
+  
+        // Subscribe to web socket for real-time stock data
+        // parameter is array of stock symbols, capitalized
+        const ws = () => {
+          // get handle for web socket - needed to subscribe to stock prices
+          const socket = new WebSocket('wss://ws.finnhub.io?token=c6aifiiad3id24fn2m00');
 
-      // get handle for web socket - needed to subscribe to stock prices
-      const socket = new WebSocket('wss://ws.finnhub.io?token=c6aifiiad3id24fn2m00');
-
-      // get handles for document elements used for stock price updates
-      const goog = document.getElementById('goog');
-      const googl = document.getElementById('googl');
-      const diff = document.getElementById('diff');
-      const pctDiff = document.getElementById('pctdiff');
-      const nYTime = document.getElementById('nytime');
-
-      // set default values for document elements
-      goog.innerText = 'GOOG: No data yet';
-      googl.innerText = 'GOOGL: No data yet';
-      diff.innerText = 'Difference: No data yet';
-      pctDiff.innerText = 'PctDiff: No data yet';
-      nYTime.innerText = 'Time in NY: ' + new Date().toLocaleString('en-US', {timeZone: 'America/New_York'});
-      
-      // declare variables for last stock price of GOOG and GOOGL and set to 0
-      let lastGoog = 0;
-      let lastGoogl = 0;
-
-      // open an event listener on the web socket and subscribe to GOOG and GOOL stock price updates
-      socket.addEventListener('open', (event) => {
-        socket.send(JSON.stringify({'type':'subscribe', 'symbol':'GOOG'}));
-        socket.send(JSON.stringify({'type':'subscribe', 'symbol':'GOOGL'}));
-      });
-
-      // handle stock price update messages from the web socket.
-      socket.addEventListener('message', (event) => {
-        const parsedObj = JSON.parse(event.data);
-        if (parsedObj.data) {
-          for (const obj of parsedObj.data) {
-            if (obj.s === 'GOOG') {
-              goog.innerText = 'GOOG: ' + (obj.p).toFixed(2);
-              lastGoog = obj.p;
+          // get handles for document elements used for stock price updates
+          const goog = document.getElementById('goog');
+          const googl = document.getElementById('googl');
+          const diff = document.getElementById('diff');
+          const pctDiff = document.getElementById('pctdiff');
+          const nYTime = document.getElementById('nytime');
+    
+          // set default values for document elements
+          goog.innerText = symbols[0] + ': No data yet';
+          googl.innerText = symbols[1] + ': No data yet';
+          diff.innerText = 'Difference: No data yet';
+          pctDiff.innerText = 'PctDiff: No data yet';
+          nYTime.innerText = 'Time in NY: ' + new Date().toLocaleString('en-US', {timeZone: 'America/New_York'});
+          
+          // declare array for last price of each stock, initialized at 0
+          const lastValue = [0, 0];
+    
+          // open an event listener on the web socket and subscribe to stock price updates
+          socket.addEventListener('open', (event) => {
+            socket.send(JSON.stringify({'type':'subscribe', 'symbol':symbols[0]}));
+            socket.send(JSON.stringify({'type':'subscribe', 'symbol':symbols[1]}));
+          });
+    
+          // handle stock price update messages from the web socket.
+          socket.addEventListener('message', (event) => {
+            const parsedObj = JSON.parse(event.data);
+            if (parsedObj.data) {
+              for (const obj of parsedObj.data) {
+                if (obj.s === symbols[0]) {
+                  goog.innerText = symbols[0] + ': ' + (obj.p).toFixed(2);
+                  lastValue[0] = obj.p;
+                }
+                if (obj.s === symbols[1]) {
+                  googl.innerText = symbols[1] + ': ' + (obj.p).toFixed(2);
+                  lastValue[1] = obj.p;
+                }
+                diff.innerText = lastValue[0] === 0 ? 'N/A' : 'Difference: ' + (lastValue[0] - lastValue[1]).toFixed(2);
+                pctDiff.innerText = lastValue[0] === 0 ? 'N/A' : 'PctDiff: ' + (100 * (lastValue[0] - lastValue[1]) / lastValue[0]).toFixed(2) + '%';
+                nYTime.innerText = 'Time in NY: ' + new Date(obj.t).toLocaleString('en-US', {timeZone: 'America/New_York'});
+              }
+            } else {
+              console.log('non-data object: ' + event.data);
             }
-            if (obj.s === 'GOOGL') {
-              googl.innerText = 'GOOGL: ' + (obj.p).toFixed(2);
-              lastGoogl = obj.p;
-            }
-            diff.innerText = lastGoog === 0 ? 'N/A' : 'Difference: ' + (lastGoog - lastGoogl).toFixed(2);
-            pctDiff.innerText = lastGoog === 0 ? 'N/A' : 'PctDiff: ' + (100 * (lastGoog - lastGoogl) / lastGoog).toFixed(2) + '%';
-            nYTime.innerText = 'Time in NY: ' + new Date(obj.t).toLocaleString('en-US', {timeZone: 'America/New_York'});
+          });
+    
+          // helper function to unsubscribe if needed
+          const unsubscribe = (symbol) => {
+            socket.send(JSON.stringify({'type':'unsubscribe', 'symbol': symbol}));
           }
-        } else {
-          console.log('non-data object: ' + event.data);
         }
-      });
-
-      // helper function to unsubscribe if needed
-      const unsubscribe = (symbol) => {
-        socket.send(JSON.stringify({'type':'unsubscribe', 'symbol': symbol}));
-      }
-
-      // get GOOG and GOOGL candle data
-
-      // get current date and time
-      const now = Math.floor(Date.now() / 1000);
-
-      // define data set
-      const candleBaseUrl = 'https://finnhub.io/api/v1/stock/candle?symbol=';
-      const secondsPer30Days = 30 * 24 * 60 * 60;
-      const thirtyDaysAgo = now - secondsPer30Days;
-
-      // allowable resolutions: 1, 5, 15, 30, 60, D, W, M - all strings, numbers represent minutes
-      const resolution = '1';
-
-      // two symbols to compare - program written specifically to compare GOOG and GOOGL
-      const symbols = ['GOOG', 'GOOGL'];
-
-      // empty array for results
-      const results = {};
-
-      // fetch the data from finnhub
-      for (const symbol of symbols) {
-        fetch(candleBaseUrl + symbol + '&resolution=' + resolution + '&from=' + thirtyDaysAgo + '&to=' + now + '&token=c6aifiiad3id24fn2m00')
-        .then((response) => {
-          return response.json();
-        })
-        .then((obj) => {
-          // load the results array
-          // console.log(obj);
-          results[symbol] = obj;
-          if (symbols[0] in results && symbols[1] in results) {
-            // console.log(results);
-            processData();
+  
+        // fetch candle data for symbols
+        const fetchCandles = () => {
+          // get current date and time
+          const now = Math.floor(Date.now() / 1000);
+    
+          // define data set
+          const candleBaseUrl = 'https://finnhub.io/api/v1/stock/candle?symbol=';
+          const secondsPer30Days = 30 * 24 * 60 * 60;
+          const thirtyDaysAgo = now - secondsPer30Days;
+    
+          // allowable resolutions: 1, 5, 15, 30, 60, D, W, M - all strings, numbers represent minutes
+          const resolution = '1';
+    
+          // empty array for results
+          const results = {};
+    
+          // fetch the data from finnhub
+          for (const symbol of symbols) {
+            fetch(candleBaseUrl + symbol + '&resolution=' + resolution + '&from=' + thirtyDaysAgo + '&to=' + now + '&token=c6aifiiad3id24fn2m00')
+            .then((response) => {
+              return response.json();
+            })
+            .then((obj) => {
+              // load the results array
+              // console.log(obj);
+              results[symbol] = obj;
+              if (symbols[0] in results && symbols[1] in results) {
+                processData(results);
+              }
+            })
+            .catch((error) => {
+              console.error('Error fetching data: ', error);
+            });
           }
-        })
-        .catch((error) => {
-          console.error('Error fetching data: ', error);
-        });
-      }
+        }
 
-      // Eliminate data elements from symbolA data that are not included
-      // in symbolB data, and are outside of normal exchange hours.
-      // This only works in the Pacific time zone because of the hours and
-      // minutes specified in the culling filter.
-      const cullSpurious = (symbolA, symbolB) => {
-        for (let index = results[symbolA].t.length - 1; index > -1; index--) {
-          const dateInSeconds = results[symbolA].t[index];
-          const date = new Date(dateInSeconds * 1000);
-          // culling filter
-          if ((date.getHours() < 7 && date.getMinutes() < 31) ||
-            date.getHours() < 6 ||
-            (date.getHours() > 12 && date.getMinutes() > 0) ||
-            !results[symbolB].t.includes(dateInSeconds) || 
-            date.getDay() === 0 ||
-            date.getDay() === 6) {
-            for (elem in results[symbolA]) {
-              if (typeof(results[symbolA][elem]) === 'object') {
-                results[symbolA][elem].splice(index, 1);
+  
+        // Eliminate data elements from symbolA data that are not included
+        // in symbolB data, and are outside of normal exchange hours.
+        // This only works in the Pacific time zone because of the hours and
+        // minutes specified in the culling filter.
+        const cullSpurious = (results, symbolA, symbolB) => {
+          for (let index = results[symbolA].t.length - 1; index > -1; index--) {
+            const dateInSeconds = results[symbolA].t[index];
+            const date = new Date(dateInSeconds * 1000);
+            // culling filter
+            if ((date.getHours() < 7 && date.getMinutes() < 31) ||
+              date.getHours() < 6 ||
+              (date.getHours() > 12 && date.getMinutes() > 0) ||
+              !results[symbolB].t.includes(dateInSeconds) || 
+              date.getDay() === 0 ||
+              date.getDay() === 6) {
+              for (elem in results[symbolA]) {
+                if (typeof(results[symbolA][elem]) === 'object') {
+                  results[symbolA][elem].splice(index, 1);
+                }
               }
             }
           }
         }
-      }
-
-      // declare and initialize graphData object
-      const graphData = {};
-      graphData.timeStamp = [];
-      graphData.lowDiff = [];
-      graphData.highDiff = [];
-
-      // declare range variables for Y axis
-      let maxY = 0;
-      let minY = 0;
-
-      // Performs multiple processing steps to filter the data and load graphData object
-      const processData = () => {
-        cullSpurious(symbols[0], symbols[1]);
-        cullSpurious(symbols[1], symbols[0]);
-
-        // console.log(results);
-
-        // combine month data into days
-        let dayIndex = 0;
-        let prevDayIndex = 0;
-        let currentDay = new Date(results[symbols[0]].t[0] * 1000).getDay();
-
-        const daysObj = {};
-        daysObj.timeStamps = [];
-        daysObj[symbols[0]] = [];
-        daysObj[symbols[0]].high = [];
-        daysObj[symbols[0]].low = [];
-        daysObj[symbols[1]] = [];
-        daysObj[symbols[1]].high = [];
-        daysObj[symbols[1]].low = [];
-
-        for (dateInSeconds of results[symbols[0]].t) {
-          const day = new Date(dateInSeconds * 1000).getDay();
-          if (day !== currentDay || dateInSeconds === results[symbols[0]].t.slice(-1)[0]) {
-            daysObj.timeStamps.push(results[symbols[0]].t.slice(prevDayIndex, dayIndex));
-            daysObj[symbols[0]].high.push(results[symbols[0]].h.slice(prevDayIndex, dayIndex));
-            daysObj[symbols[0]].low.push(results[symbols[0]].l.slice(prevDayIndex, dayIndex));
-            daysObj[symbols[1]].high.push(results[symbols[1]].h.slice(prevDayIndex, dayIndex));
-            daysObj[symbols[1]].low.push(results[symbols[1]].l.slice(prevDayIndex, dayIndex));
-            currentDay = day;
-            prevDayIndex = dayIndex;
-          }
-          dayIndex++;
-        }
-        console.log(daysObj);
-
-        // Load graphData object with data
-        for (let index = 0; index < daysObj.timeStamps.length; index++) {
-          if (index < daysObj.timeStamps.length - 1) {
-            graphData.timeStamp[index] = daysObj.timeStamps[index][0];
-            const highY = Math.max(...daysObj[symbols[0]].high[index].map((n, i) => n - daysObj[symbols[1]].low[index][i]));
-            const lowY = Math.min(...daysObj[symbols[0]].low[index].map((n, i) => n - daysObj[symbols[1]].high[index][i]));
-            maxY = highY > maxY ? highY : maxY;
-            minY = lowY < minY ? lowY : minY;
-            graphData.highDiff[index] = highY;
-            graphData.lowDiff[index] = lowY;
-          }
-          // else if (daysObj.timeStamps[index] )
-        }
-        console.log(graphData);
-
-        drawGraph();
-      }
-      
-      const drawGraph = () => {
-        const graph = document.getElementById('graph');
-        graph.width = 500;
-        graph.height = 500;
-        const ctxGraph = graph.getContext('2d');
-        const xPixelsPerDiv = 400 / graphData.timeStamp.length;
-        let x = 50 + xPixelsPerDiv;
   
-        const graphMinY = 10 * Math.floor(minY / 10);
-        const graphMaxY = 10 * Math.ceil(maxY / 10);
-        const graphRange = graphMaxY - graphMinY;
-        const graphZeroRatio = graphMinY < 0 ? graphMaxY / graphRange : 1;
-        const yPxPerDollar = 400 / graphRange;
-
-        ctxGraph.beginPath();
-        ctxGraph.moveTo(50, 450);
-        ctxGraph.lineTo(50, 50);
-        ctxGraph.moveTo(50, 50 + 400 * graphZeroRatio);
-        ctxGraph.lineTo(450, 50 + 400 * graphZeroRatio);
-        ctxGraph.stroke();
-        const ticks = graphMaxY - graphMinY + 1;
-        for (let tick = 0; tick < ticks; tick++) {
-          if (tick % 10 === 0) {
-            ctxGraph.moveTo(45, 50 + tick * yPxPerDollar);
-            ctxGraph.lineTo(50, 50 + tick * yPxPerDollar);
+        // Performs multiple processing steps to filter the data and load graphData object
+        const processData = (results) => {
+          // Eliminate spurious data
+          cullSpurious(results, symbols[0], symbols[1]);
+          cullSpurious(results, symbols[1], symbols[0]);
+  
+          console.log(results);
+  
+          // combine month data into days
+          let dayIndex = 0;
+          let prevDayIndex = 0;
+          let hourIndex = 0;
+          let prevHourIndex = 0;
+          let currentDay = new Date(results[symbols[0]].t[0] * 1000).getDay();
+          let currentHour = new Date(results[symbols[0]].t[0] * 1000).getHours();
+  
+          // Declare and load arrays for indices of first occurrance day/hour in results
+          const dayIndices = [0];
+          const hourIndices = [0];
+          for (dateInSeconds of results[symbols[0]].t) {
+            const date = new Date(dateInSeconds * 1000);
+            const day = date.getDay();
+            const hour = date.getHours();
+            if (day !== currentDay) { // || dateInSeconds === results[symbols[0]].t.slice(-1)[0]) {
+              dayIndices.push(dayIndex);
+              currentDay = day;
+              prevDayIndex = dayIndex;
+            }
+            dayIndex++;
+            if (hour !== currentHour) {
+              hourIndices.push(hourIndex + 1); // add one to include time until top of hour in hour data
+              if (currentHour === 13) hourIndices.pop(); // prevents extra index between days
+              currentHour = hour;
+              prevHourIndex = hourIndex;
+            }
+            hourIndex++;
+          }
+  
+          console.log(dayIndices);
+          console.log(hourIndices);
+  
+          // declare and initialize graphData object
+          const graphData = {};
+          graphData.maxY = 0;
+          graphData.minY = 0;
+          graphData.timeStamps = [];
+          for (objName of ['days', 'hours', 'minutes']) {
+            graphData[objName] = {};
+            graphData[objName].lowDiff = [];
+            graphData[objName].highDiff = [];
+          }
+  
+          results.highDiff = results[symbols[0]].h.map((n, i) => n - results[symbols[1]].h[i]);  // subract high GOOG from high GOOGL
+          results.lowDiff = results[symbols[0]].l.map((n, i) => n - results[symbols[1]].l[i]);  // subract low GOOG from low GOOGL
+  
+          // Load graphData with day data
+          for (let idx = 1; idx < dayIndices.length; idx++) {
+            graphData.timeStamps.push(results[symbols[0]].t.slice(dayIndices[idx - 1], dayIndices[idx])[0]);
+            const highY = Math.max(...results.highDiff.slice(dayIndices[idx - 1], dayIndices[idx]));
+            const lowY = Math.min(...results.lowDiff.slice(dayIndices[idx - 1], dayIndices[idx]));
+            graphData.days.highDiff.push(highY);
+            graphData.days.lowDiff.push(lowY);
+            graphData.maxY = highY > graphData.maxY ? highY : graphData.maxY;
+            graphData.minY = lowY < graphData.minY ? lowY : graphData.minY;
+          }
+  
+          // Load graphData with hour data
+          let lastDayIndex = dayIndices[dayIndices.length - 1];
+          let startIndex = hourIndices.indexOf(lastDayIndex);
+          let endIndex = results[symbols[0]].t.length - 60;
+          endIndex = endIndex > startIndex ? endIndex : startIndex;
+          for (let idx = startIndex; idx < hourIndices.length; idx++) { //startIndex; idx < endIndex; idx++) {
+            graphData.timeStamps.push(results[symbols[0]].t.slice(hourIndices[idx], hourIndices[idx + 1])[0]);
+            const highY = Math.max(...results.highDiff.slice(hourIndices[idx], hourIndices[idx + 1]));
+            const lowY = Math.min(...results.lowDiff.slice(hourIndices[idx], hourIndices[idx + 1]));
+            graphData.hours.highDiff.push(highY);
+            graphData.hours.lowDiff.push(lowY);
+            graphData.maxY = highY > graphData.maxY ? highY : graphData.maxY;
+            graphData.minY = lowY < graphData.minY ? lowY : graphData.minY;
+          }
+  
+          // Load graphData with minute data
+          startIndex = results[symbols[0]].t.length - 60;
+          startIndex = startIndex > lastDayIndex ? startIndex : lastDayIndex; // should this be lastDayIndex + 1
+          for (let idx = startIndex; idx < results[symbols[0]].t.length; idx++) {
+            graphData.timeStamps.push(results[symbols[0]].t[idx]);
+            const highY = results.highDiff[idx];
+            const lowY = results.lowDiff[idx];
+            graphData.minutes.highDiff.push(highY);
+            graphData.minutes.lowDiff.push(lowY);
+            graphData.maxY = highY > graphData.maxY ? highY : graphData.maxY;
+            graphData.minY = lowY < graphData.minY ? lowY : graphData.minY;
+          }
+          console.log(graphData);
+          drawGraph(graphData);
+        }
+        
+        const drawGraph = (graphData) => {
+          const graph = document.getElementById('graph');
+          graph.width = 1000;
+          graph.height = 500;
+          const ctxGraph = graph.getContext('2d');
+          const xPixelsPerDiv = 900 / graphData.timeStamps.length;
+          let x = 50 + xPixelsPerDiv;
+    
+          const graphMinY = 10 * Math.floor(graphData.minY / 10);
+          const graphMaxY = 10 * Math.ceil(graphData.maxY / 10);
+          const graphRange = graphMaxY - graphMinY;
+          const graphZeroRatio = graphMinY < 0 ? graphMaxY / graphRange : 1;
+          const yPxPerDollar = 400 / graphRange;
+  
+          // Draw axes and tick marks
+          ctxGraph.lineCap = 'square';
+          ctxGraph.lineWidth = 1;
+          ctxGraph.beginPath();
+          ctxGraph.moveTo(50, 450);
+          ctxGraph.lineTo(50, 50);
+          ctxGraph.moveTo(50, 50 + 400 * graphZeroRatio);
+          ctxGraph.lineTo(950, 50 + 400 * graphZeroRatio);
+          ctxGraph.stroke();
+          const ticks = graphMaxY - graphMinY + 1;
+          for (let tick = 0; tick < ticks; tick++) {
+            if (tick % 10 === 0) {
+              ctxGraph.moveTo(45, 50 + tick * yPxPerDollar);
+              ctxGraph.lineTo(50, 50 + tick * yPxPerDollar);
+              ctxGraph.stroke();
+              ctxGraph.textBaseline = 'middle';
+              ctxGraph.textAlign = 'right';
+              ctxGraph.font = '15px sans-serif';
+              ctxGraph.fillText('' + graphMaxY - tick, 40, 50 + tick * yPxPerDollar);
+            }
+          }
+  
+          // Draw data values
+          ctxGraph.lineWidth = 2;
+          for (let index = 0; index < graphData.timeStamps.length; index++) {
+            let graphSub = graphData.days;
+            let subIndex = index;
+            ctxGraph.strokeStyle = 'magenta';
+            if (index > graphData.timeStamps.length - graphData.minutes.highDiff.length) {
+              graphSub = graphData.minutes;
+              subIndex = index - (graphData.timeStamps.length - graphData.minutes.highDiff.length);
+              ctxGraph.strokeStyle = 'red';
+            } else if (index > graphData.days.highDiff.length) {
+              graphSub = graphData.hours;
+              subIndex = index - graphData.days.highDiff.length;
+              ctxGraph.strokeStyle = 'blue';
+            }
+            const yLow = 50 + (graphZeroRatio * graphRange - graphSub.lowDiff[subIndex]) * yPxPerDollar ;
+            const yHigh = 50 + (graphZeroRatio * graphRange - graphSub.highDiff[subIndex]) * yPxPerDollar ;
+            ctxGraph.beginPath();
+            ctxGraph.moveTo(x, yLow);
+            ctxGraph.lineTo(x, yHigh);
             ctxGraph.stroke();
-            ctxGraph.textBaseline = 'middle';
-            ctxGraph.textAlign = 'right';
-            ctxGraph.font = '15px sans-serif';
-            ctxGraph.fillText('' + graphMaxY - tick, 40, 50 + tick * yPxPerDollar);
+            x += xPixelsPerDiv;
           }
         }
-
-        for (let index = 0; index < graphData.timeStamp.length; index++) {
-          ctxGraph.strokeStyle = 'blue';
-          const yLow = 50 + (graphZeroRatio * graphRange - graphData.lowDiff[index]) * yPxPerDollar ;
-          const yHigh = 50 + (graphZeroRatio * graphRange - graphData.highDiff[index]) * yPxPerDollar ;
-          ctxGraph.beginPath();
-          ctxGraph.moveTo(x, yLow);
-          ctxGraph.lineTo(x, yHigh);
-          ctxGraph.stroke();
-          x += xPixelsPerDiv;
-        }
+        ws();
+        fetchCandles();
       }
+      arb();
     </script>
   </body>
 </html>
