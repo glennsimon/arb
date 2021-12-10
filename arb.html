@@ -231,7 +231,7 @@
             graphData.minY = lowY < graphData.minY ? lowY : graphData.minY;
           }
   
-          // Load graphData with hour data
+          // Load graphData with quarter hour data
           let lastDayIndex = dayIndices[dayIndices.length - 1];
           let startIndex = qHourIndices.indexOf(lastDayIndex);
           let endIndex = results[symbols[0]].t.length - 15;
