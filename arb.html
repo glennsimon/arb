@@ -22,6 +22,9 @@
         // two symbols to compare - program written specifically to compare GOOG and GOOGL
         const symbols = ['GOOG', 'GOOGL'];
   
+        // declare object to contain results for fetched data
+        const results = {};
+    
         // Subscribe to web socket for real-time stock data
         // parameter is array of stock symbols, capitalized
         const ws = () => {
@@ -93,9 +96,6 @@
           // this program will always use 1 minute interval
           const resolution = '1';
     
-          // empty array for results
-          const results = {};
-    
           // fetch the data from finnhub
           for (const symbol of symbols) {
             fetch(candleBaseUrl + symbol + '&resolution=' + resolution + '&from=' + thirtyDaysAgo + '&to=' + now + '&token=c6aifiiad3id24fn2m00')
@@ -107,7 +107,7 @@
               // console.log(obj);
               results[symbol] = obj;
               if (symbols[0] in results && symbols[1] in results) {
-                processData(results);
+                processData();
               }
             })
             .catch((error) => {
@@ -121,7 +121,7 @@
         // in symbolB data, and are outside of normal exchange hours.
         // This only works in the Pacific time zone because of the hours and
         // minutes specified in the culling filter.
-        const cullSpurious = (results, symbolA, symbolB) => {
+        const cullSpurious = (symbolA, symbolB) => {
           for (let index = results[symbolA].t.length - 1; index > -1; index--) {
             const dateInSeconds = results[symbolA].t[index];
             const date = new Date(dateInSeconds * 1000);
@@ -141,8 +141,8 @@
           }
         }
 
-        // Returns an array of indices of values in <results> spaced <minutes> apart
-        const idxEngine = (results, minutes) => {
+        // Returns an array of indices in <results> spaced <minutes> apart
+        const idxEngine = (minutes) => {
           const idxArray = [0];
           // const firstMinute = results[symbols[0]].t[0];
           const date = new Date(results[symbols[0]].t[0] * 1000);
@@ -173,7 +173,7 @@
         }
 
         // load graphData with results data based on indicesArray elements and return new graphData object
-        const loadGraphData = (startIndex, endIndex, results, indicesArray, timespan, graphData) => {
+        const loadGraphData = (startIndex, endIndex, indicesArray, timespan, graphData) => {
           // if empty, initialize graphData object
           if (! graphData.timeStamps) {
             graphData.maxY = 0;
@@ -201,16 +201,16 @@
 
   
         // Performs multiple processing steps to filter the data and load graphData object
-        const processData = (results) => {
+        const processData = () => {
           // Eliminate spurious data
-          cullSpurious(results, symbols[0], symbols[1]);
-          cullSpurious(results, symbols[1], symbols[0]);
+          cullSpurious(symbols[0], symbols[1]);
+          cullSpurious(symbols[1], symbols[0]);
   
           // console.log(results);
   
           // Declare and load arrays for indices of first occurrance of day/hour in results
-          const dayIndices = idxEngine(results, 24 * 60);
-          const qHourIndices = idxEngine(results, 15);
+          const dayIndices = idxEngine(24 * 60);
+          const qHourIndices = idxEngine(15);
   
           results.highDiff = results[symbols[0]].h.map((n, i) => n - results[symbols[1]].h[i]);  // subract high GOOG from high GOOGL
           results.lowDiff = results[symbols[0]].l.map((n, i) => n - results[symbols[1]].l[i]);  // subract low GOOG from low GOOGL
@@ -221,22 +221,23 @@
           let graphData = {};
 
           // load graphData with days data
-          graphData = loadGraphData(1, dayIndices.length, results, dayIndices, 'days', graphData);
+          graphData = loadGraphData(1, dayIndices.length, dayIndices, 'days', graphData);
 
           // load graphData with qHours data
           let lastDayIndex = dayIndices[dayIndices.length - 1];
           let startIndex = qHourIndices.indexOf(lastDayIndex);
-          graphData = loadGraphData(startIndex, qHourIndices.length, results, qHourIndices, 'qHours', graphData);
+          graphData = loadGraphData(startIndex, qHourIndices.length, qHourIndices, 'qHours', graphData);
 
           // load graphData with minutes data
           const resultsLength = results[symbols[0]].t.length;
           startIndex = resultsLength - 15;
           startIndex = startIndex > lastDayIndex ? startIndex : lastDayIndex; // should this be lastDayIndex + 1
           const minuteIndices = results[symbols[0]].t.slice(startIndex, resultsLength).map((n, i) => i + startIndex);
-          loadGraphData(0, minuteIndices.length, results, minuteIndices, 'minutes', graphData);
+          loadGraphData(0, minuteIndices.length, minuteIndices, 'minutes', graphData);
 
           console.log(graphData);
           drawGraph(graphData);
+          console.log('done');
         }
         
         const drawGraph = (graphData) => {
@@ -281,11 +282,11 @@
             let graphSub = graphData.days;
             let subIndex = index;
             ctxGraph.strokeStyle = 'magenta';
-            if (index > graphData.timeStamps.length - graphData.minutes.highDiff.length) {
+            if (index >= graphData.timeStamps.length - graphData.minutes.highDiff.length) {
               graphSub = graphData.minutes;
               subIndex = index - (graphData.timeStamps.length - graphData.minutes.highDiff.length);
               ctxGraph.strokeStyle = 'red';
-            } else if (index > graphData.days.highDiff.length) {
+            } else if (index >= graphData.days.highDiff.length) {
               graphSub = graphData.qHours;
               subIndex = index - graphData.days.highDiff.length;
               ctxGraph.strokeStyle = 'blue';
