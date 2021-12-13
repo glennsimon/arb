@@ -183,16 +183,27 @@
               graphData[objName] = {};
               graphData[objName].lowDiff = [];
               graphData[objName].highDiff = [];
+              graphData[objName].openDiff = [];
+              graphData[objName].closeDiff = [];
             }
           }
   
           // Load graphData with results data based on indicesArray
           for (let idx = startIndex; idx < endIndex; idx++) {
-            graphData.timeStamps.push(results[symbols[0]].t.slice(indicesArray[idx], indicesArray[idx + 1])[0]);
+            // graphData.timeStamps.push(results[symbols[0]].t.slice(indicesArray[idx], indicesArray[idx + 1])[0]);
+            graphData.timeStamps.push(results[symbols[0]].t[indicesArray[idx]]);
             const highY = Math.max(...results.highDiff.slice(indicesArray[idx], indicesArray[idx + 1]));
             const lowY = Math.min(...results.lowDiff.slice(indicesArray[idx], indicesArray[idx + 1]));
+            const openY = results.openDiff[indicesArray[idx]];
+            // closeIndex calc is to make sure the close is captured for the last minute of data
+            const closeIndex =
+              indicesArray[idx] === results[symbols[0]].t.length - 1 ?
+              indicesArray[idx] : indicesArray[idx + 1] - 1;
+            const closeY = results.closeDiff[closeIndex];
             graphData[timespan].highDiff.push(highY);
             graphData[timespan].lowDiff.push(lowY);
+            graphData[timespan].openDiff.push(openY);
+            graphData[timespan].closeDiff.push(closeY);
             graphData.maxY = highY > graphData.maxY ? highY : graphData.maxY;
             graphData.minY = lowY < graphData.minY ? lowY : graphData.minY;
           }
@@ -221,12 +232,12 @@
           let graphData = {};
 
           // load graphData with days data
-          graphData = loadGraphData(1, dayIndices.length, dayIndices, 'days', graphData);
+          graphData = loadGraphData(1, dayIndices.length - 1, dayIndices, 'days', graphData);
 
           // load graphData with qHours data
           let lastDayIndex = dayIndices[dayIndices.length - 1];
           let startIndex = qHourIndices.indexOf(lastDayIndex);
-          graphData = loadGraphData(startIndex, qHourIndices.length, qHourIndices, 'qHours', graphData);
+          graphData = loadGraphData(startIndex, qHourIndices.length - 1, qHourIndices, 'qHours', graphData);
 
           // load graphData with minutes data
           const resultsLength = results[symbols[0]].t.length;
@@ -245,8 +256,8 @@
           graph.width = 1000;
           graph.height = 500;
           const ctxGraph = graph.getContext('2d');
-          const xPixelsPerDiv = 900 / graphData.timeStamps.length;
-          let x = 50 + xPixelsPerDiv;
+          const xPixelsPerDiv = 900 / (graphData.timeStamps.length + 1);
+          let x = 50 + xPixelsPerDiv / 2;
     
           const graphMinY = 10 * Math.floor(graphData.minY / 10);
           const graphMaxY = 10 * Math.ceil(graphData.maxY / 10);
@@ -254,7 +265,19 @@
           const graphZeroRatio = graphMinY < 0 ? graphMaxY / graphRange : 1;
           const yPxPerDollar = 400 / graphRange;
   
+          // Draw shading
+          const daysWidth = graphData.days.highDiff.length * xPixelsPerDiv;
+          const qHoursWidth = graphData.qHours.highDiff.length * xPixelsPerDiv;
+          const minutesWidth = graphData.minutes.highDiff.length * xPixelsPerDiv;
+          ctxGraph.fillStyle = 'rgba(0,0,0,0.4)';
+          ctxGraph.fillRect(50, 50, daysWidth, 400);
+          ctxGraph.fillStyle = 'rgba(0,0,0,0.2)';
+          ctxGraph.fillRect(50 + daysWidth, 50, qHoursWidth, 400);
+          ctxGraph.fillStyle = 'rgba(0,0,0,0.1)';
+          ctxGraph.fillRect(50 + daysWidth + qHoursWidth, 50, minutesWidth + xPixelsPerDiv, 400);
+  
           // Draw axes and tick marks
+          ctxGraph.fillStyle = 'black';
           ctxGraph.lineCap = 'square';
           ctxGraph.lineWidth = 1;
           ctxGraph.beginPath();
@@ -275,9 +298,8 @@
               ctxGraph.fillText('' + graphMaxY - tick, 40, 50 + tick * yPxPerDollar);
             }
           }
-  
+
           // Draw data values
-          ctxGraph.lineWidth = 2;
           for (let index = 0; index < graphData.timeStamps.length; index++) {
             let graphSub = graphData.days;
             let subIndex = index;
@@ -291,11 +313,20 @@
               subIndex = index - graphData.days.highDiff.length;
               ctxGraph.strokeStyle = 'blue';
             }
-            const yLow = 50 + (graphZeroRatio * graphRange - graphSub.lowDiff[subIndex]) * yPxPerDollar ;
-            const yHigh = 50 + (graphZeroRatio * graphRange - graphSub.highDiff[subIndex]) * yPxPerDollar ;
+            const yLow = 50 + (graphZeroRatio * graphRange - graphSub.lowDiff[subIndex]) * yPxPerDollar;
+            const yHigh = 50 + (graphZeroRatio * graphRange - graphSub.highDiff[subIndex]) * yPxPerDollar;
+            const yOpen = 50 + (graphZeroRatio * graphRange - graphSub.openDiff[subIndex]) * yPxPerDollar;
+            const yClose = 50 + (graphZeroRatio * graphRange - graphSub.closeDiff[subIndex]) * yPxPerDollar;
+            ctxGraph.strokeStyle = yOpen >= yClose ? 'green' : 'red';
+            ctxGraph.lineWidth = 2;
             ctxGraph.beginPath();
             ctxGraph.moveTo(x, yLow);
             ctxGraph.lineTo(x, yHigh);
+            ctxGraph.stroke();
+            ctxGraph.lineWidth = 6;
+            ctxGraph.beginPath();
+            ctxGraph.moveTo(x, yOpen);
+            ctxGraph.lineTo(x, yClose);
             ctxGraph.stroke();
             x += xPixelsPerDiv;
           }
