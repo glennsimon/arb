@@ -21,6 +21,9 @@
       const arb = () => {
         // two symbols to compare - program written specifically to compare GOOG and GOOGL
         const symbols = ['GOOG', 'GOOGL'];
+
+        // declare array for last price of each stock, initialized at 0
+        const lastValue = [0, 0];
   
         // declare object to contain results for fetched data
         const results = {};
@@ -45,9 +48,6 @@
           pctDiff.innerText = 'PctDiff: No data yet';
           nYTime.innerText = 'Time in NY: ' + new Date().toLocaleString('en-US', {timeZone: 'America/New_York'});
           
-          // declare array for last price of each stock, initialized at 0
-          const lastValue = [0, 0];
-    
           // open an event listener on the web socket and subscribe to stock price updates
           socket.addEventListener('open', (event) => {
             socket.send(JSON.stringify({'type':'subscribe', 'symbol':symbols[0]}));
@@ -70,6 +70,7 @@
                 diff.innerText = lastValue[0] === 0 ? 'N/A' : 'Difference: ' + (lastValue[0] - lastValue[1]).toFixed(2);
                 pctDiff.innerText = lastValue[0] === 0 ? 'N/A' : 'PctDiff: ' + (100 * (lastValue[0] - lastValue[1]) / lastValue[0]).toFixed(2) + '%';
                 nYTime.innerText = 'Time in NY: ' + new Date(obj.t).toLocaleString('en-US', {timeZone: 'America/New_York'});
+                drawPoint();
               }
             } else {
               console.log('non-data object: ' + event.data);
@@ -210,7 +211,6 @@
           return graphData;
         }
 
-  
         // Performs multiple processing steps to filter the data and load graphData object
         const processData = () => {
           // Eliminate spurious data
@@ -223,8 +223,15 @@
           const dayIndices = idxEngine(24 * 60);
           const qHourIndices = idxEngine(15);
   
-          results.highDiff = results[symbols[0]].h.map((n, i) => n - results[symbols[1]].h[i]);  // subract high GOOG from high GOOGL
-          results.lowDiff = results[symbols[0]].l.map((n, i) => n - results[symbols[1]].l[i]);  // subract low GOOG from low GOOGL
+          // get diff data for each data point
+          results.highDiff = results[symbols[0]].h.map((n, i) =>
+            n - results[symbols[1]].h[i] > results[symbols[0]].l[i] - results[symbols[1]].l[i] ?
+            n - results[symbols[1]].h[i] : results[symbols[0]].l[i] - results[symbols[1]].l[i]
+          );
+          results.lowDiff = results[symbols[0]].l.map((n, i) =>
+            n - results[symbols[1]].l[i] < results[symbols[0]].h[i] - results[symbols[1]].h[i] ?
+            n - results[symbols[1]].l[i] : results[symbols[0]].h[i] - results[symbols[1]].h[i]
+          );
           results.openDiff = results[symbols[0]].o.map((n, i) => n - results[symbols[1]].o[i]);  // subract low GOOG from low GOOGL
           results.closeDiff = results[symbols[0]].c.map((n, i) => n - results[symbols[1]].c[i]);  // subract low GOOG from low GOOGL
   
@@ -251,19 +258,28 @@
           console.log('done');
         }
         
+        // get the graph canvas and initialize its size
+        const graph = document.getElementById('graph');
+        graph.width = 1000;
+        graph.height = 500;
+        const ctxGraph = graph.getContext('2d');
+        const gParams = {};
+
         const drawGraph = (graphData) => {
-          const graph = document.getElementById('graph');
-          graph.width = 1000;
-          graph.height = 500;
-          const ctxGraph = graph.getContext('2d');
+          ctxGraph.clearRect(0, 0, 1000, 500);
           const xPixelsPerDiv = 900 / (graphData.timeStamps.length + 1);
           let x = 50 + xPixelsPerDiv / 2;
+          gParams.xPixelsPerDiv = xPixelsPerDiv;
+          gParams.dataLength = graphData.timeStamps.length;
     
           const graphMinY = 10 * Math.floor(graphData.minY / 10);
           const graphMaxY = 10 * Math.ceil(graphData.maxY / 10);
           const graphRange = graphMaxY - graphMinY;
+          gParams.graphRange = graphRange;
           const graphZeroRatio = graphMinY < 0 ? graphMaxY / graphRange : 1;
           const yPxPerDollar = 400 / graphRange;
+          gParams.graphZeroRatio = graphZeroRatio;
+          gParams.yPxPerDollar = yPxPerDollar;
   
           // Draw shading
           const daysWidth = graphData.days.highDiff.length * xPixelsPerDiv;
@@ -331,6 +347,22 @@
             x += xPixelsPerDiv;
           }
         }
+
+        // Draws a point on the graph when the web socket gets a new value
+        const drawPoint = () => {
+          const instDiff = lastValue[0] !== 0 && lastValue[1] !== 0 ? lastValue[0] - lastValue[1] : null;
+          if (instDiff) {
+            ctxGraph.fillStyle = 'rgba(255,255,0,.2)';
+            ctxGraph.beginPath();
+            ctxGraph.arc(
+              50 + gParams.xPixelsPerDiv * (0.5 + gParams.dataLength),
+              50 + (gParams.graphZeroRatio * gParams.graphRange - instDiff) * gParams.yPxPerDollar,
+              3, 0, 2 * Math.PI
+            );
+            ctxGraph.fill();
+          }
+        }
+
         ws();
         fetchCandles();
       }
