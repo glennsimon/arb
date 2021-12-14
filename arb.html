@@ -26,7 +26,7 @@
         const lastValue = [0, 0];
   
         // declare object to contain results for fetched data
-        const results = {};
+        let results = {};
     
         // get handles for document elements used for stock price updates
         const goog = document.getElementById('goog');
@@ -54,11 +54,16 @@
             socket.send(JSON.stringify({'type':'subscribe', 'symbol':symbols[1]}));
           });
     
+          let minutes;
+
           // handle stock price update messages from the web socket.
           socket.addEventListener('message', (event) => {
             const parsedObj = JSON.parse(event.data);
             if (parsedObj.data) {
+              let objMinutes;
               for (const obj of parsedObj.data) {
+                const date = new Date(obj.t);
+                objMinutes = date.getMinutes();
                 if (obj.s === symbols[0]) {
                   goog.innerText = symbols[0] + ': ' + (obj.p).toFixed(2);
                   lastValue[0] = obj.p;
@@ -67,11 +72,18 @@
                   googl.innerText = symbols[1] + ': ' + (obj.p).toFixed(2);
                   lastValue[1] = obj.p;
                 }
-                diff.innerText = lastValue[0] === 0 ? 'N/A' : 'Difference: ' + (lastValue[0] - lastValue[1]).toFixed(2);
-                pctDiff.innerText = lastValue[0] === 0 ? 'N/A' : 'PctDiff: ' + (100 * (lastValue[0] - lastValue[1]) / lastValue[0]).toFixed(2) + '%';
-                nYTime.innerText = 'Time in NY: ' + new Date(obj.t).toLocaleString('en-US', {timeZone: 'America/New_York'});
+                diff.innerText = lastValue[0] === 0 ? 'N/A' :
+                  'Difference: ' + (lastValue[0] - lastValue[1]).toFixed(2);
+                pctDiff.innerText = lastValue[0] === 0 ? 'N/A' :
+                  'PctDiff: ' + (100 * (lastValue[0] - lastValue[1]) / lastValue[0]).toFixed(2) + '%';
+                nYTime.innerText = 'Time in NY: ' + date.toLocaleString('en-US', {timeZone: 'America/New_York'});
                 drawPoint();
               }
+              if (minutes && minutes !== objMinutes) {
+                results = {};
+                fetchCandles();
+              }
+              minutes = objMinutes;
             } else {
               console.log('non-data object: ' + event.data);
             }
@@ -297,6 +309,7 @@
   
           // Draw axes and tick marks
           ctxGraph.fillStyle = 'black';
+          ctxGraph.strokeStyle = 'black';
           ctxGraph.lineCap = 'square';
           ctxGraph.lineWidth = 1;
           ctxGraph.beginPath();
