@@ -28,19 +28,19 @@
         // declare object to contain results for fetched data
         const results = {};
     
+        // get handles for document elements used for stock price updates
+        const goog = document.getElementById('goog');
+        const googl = document.getElementById('googl');
+        const diff = document.getElementById('diff');
+        const pctDiff = document.getElementById('pctdiff');
+        const nYTime = document.getElementById('nytime');
+    
         // Subscribe to web socket for real-time stock data
         // parameter is array of stock symbols, capitalized
         const ws = () => {
           // get handle for web socket - needed to subscribe to stock prices
           const socket = new WebSocket('wss://ws.finnhub.io?token=c6aifiiad3id24fn2m00');
 
-          // get handles for document elements used for stock price updates
-          const goog = document.getElementById('goog');
-          const googl = document.getElementById('googl');
-          const diff = document.getElementById('diff');
-          const pctDiff = document.getElementById('pctdiff');
-          const nYTime = document.getElementById('nytime');
-    
           // set default values for document elements
           goog.innerText = symbols[0] + ': No data yet';
           googl.innerText = symbols[1] + ': No data yet';
@@ -213,6 +213,9 @@
 
         // Performs multiple processing steps to filter the data and load graphData object
         const processData = () => {
+          // get initial values for prices and differences or handle off hours
+          handleAfterHours();
+
           // Eliminate spurious data
           cullSpurious(symbols[0], symbols[1]);
           cullSpurious(symbols[1], symbols[0]);
@@ -360,6 +363,18 @@
               3, 0, 2 * Math.PI
             );
             ctxGraph.fill();
+          }
+        }
+
+        const handleAfterHours = () => {
+          if (lastValue[0] === 0 && lastValue[1] === 0) {
+            const googPrice = results[symbols[0]].c.at(-1);
+            const googlPrice = results[symbols[1]].c.at(-1);
+            goog.innerText = symbols[0] + ': ' + (googPrice).toFixed(2);
+            googl.innerText = symbols[1] + ': ' + (googlPrice).toFixed(2);
+            diff.innerText = 'Difference: ' + (googPrice - googlPrice).toFixed(2);
+            pctDiff.innerText = 'PctDiff: ' + (100 * (googPrice - googlPrice) / googPrice).toFixed(2) + '%';
+            nYTime.innerText = nYTime.innerText + ' - MARKET CLOSED';
           }
         }
 
