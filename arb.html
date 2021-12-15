@@ -24,18 +24,18 @@
         text-align: center;
       }
 
-      .container > * {
+      .container > #diff, .container > #nytime {
         flex: 1 100%;
       }
 
-      .row {
-        flex: 1 0%;
+      .ticker, .price {
+        flex: 1 50%;
       }
 
       .ticker {
         font-size: 6vh;
         height: 10vh;
-        margin: auto;
+        padding: 3vh 0 0;
       }
 
       .price {
@@ -43,18 +43,28 @@
         height: 6vh;
       }
 
+      #diff {
+        font-size: 4vh;
+      }
+
+      #nytime {
+        font-size: 3vh;
+      }
+
+      @media screen and (max-aspect-ratio: 1/1) {
+        .ticker { font-size: 4vh; height: 6vh; padding: 2vh 0 0;}
+        .price { font-size: 3vh; height: 4vh; }
+        #diff { font-size: 2.5vh; }
+        #nytime { font-size: 2vh; }
+      }
     </style>
   </head>
   <body>
     <div class='container'>
-      <div class='row'>
-        <div class='ticker'>GOOG</div>
-        <div class='price' id='goog'></div>
-      </div>
-      <div class='row'>
-        <div class='ticker'>GOOGL</div>
-        <div class='price' id='googl'></div>
-      </div>
+      <div class='ticker'>GOOG</div>
+      <div class='ticker'>GOOGL</div>
+      <div class='price' id='goog'></div>
+      <div class='price' id='googl'></div>
       <div id='diff'></div>
       <div id='nytime'></div>
       <canvas id='graph'></canvas>
@@ -261,6 +271,9 @@
           return graphData;
         }
 
+        // declare graphData object
+        let graphData = {};
+
         // Performs multiple processing steps to filter the data and load graphData object
         const processData = () => {
           // get initial values for prices and differences or handle off hours
@@ -288,8 +301,7 @@
           results.openDiff = results[symbols[0]].o.map((n, i) => n - results[symbols[1]].o[i]);  // subract low GOOG from low GOOGL
           results.closeDiff = results[symbols[0]].c.map((n, i) => n - results[symbols[1]].c[i]);  // subract low GOOG from low GOOGL
   
-          // declare graphData object
-          let graphData = {};
+          graphData = {};
 
           // load graphData with days data
           graphData = loadGraphData(1, dayIndices.length - 1, dayIndices, 'days', graphData);
@@ -307,23 +319,35 @@
           loadGraphData(0, minuteIndices.length, minuteIndices, 'minutes', graphData);
 
           console.log(graphData);
-          drawGraph(graphData);
+          drawGraph();
           console.log('done');
+        }
+
+        window.onresize = () => {
+          graph.width = window.innerWidth;
+          graph.height = window.innerHeight < window.innerWidth ?
+            0.75 * window.innerHeight : 0.85 * window.innerHeight;
+          leftMargin = 0.08 * graph.width;
+          topMargin = 0.05 * graph.height;
+          plotWidth = graph.width - 1.25 * leftMargin;
+          plotHeight = graph.height - 2 * topMargin;
+          drawGraph();
         }
         
         // get the graph canvas and initialize its size
         const graph = document.getElementById('graph');
         graph.width = window.innerWidth;
-        graph.height = 0.5 * window.innerHeight;
+        graph.height = window.innerHeight < window.innerWidth ?
+          0.75 * window.innerHeight : 0.85 * window.innerHeight;
         const ctxGraph = graph.getContext('2d');
         const gParams = {};
 
-        let leftMargin = 0.05 * graph.width;
+        let leftMargin = 0.08 * graph.width;
         let topMargin = 0.05 * graph.height;
-        let plotWidth = graph.width - 2 * leftMargin;
+        let plotWidth = graph.width - 1.25 * leftMargin;
         let plotHeight = graph.height - 2 * topMargin;
 
-        const drawGraph = (graphData) => {
+        const drawGraph = () => {
           ctxGraph.clearRect(0, 0, graph.width, graph.height);
           const xPixelsPerDiv = plotWidth / (graphData.timeStamps.length + 1);
           let x = leftMargin + xPixelsPerDiv / 2;
@@ -370,7 +394,8 @@
               ctxGraph.stroke();
               ctxGraph.textBaseline = 'middle';
               ctxGraph.textAlign = 'right';
-              ctxGraph.font = '' + 0.05 * plotHeight + 'px sans-serif';
+              const fontHeight = plotWidth > plotHeight ? 0.05 * plotHeight : 0.05 * plotWidth;
+              ctxGraph.font = '' + fontHeight + 'px sans-serif';
               ctxGraph.fillText('' + graphMaxY - tick, 0.8 * leftMargin, topMargin + tick * yPxPerDollar);
             }
           }
