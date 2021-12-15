@@ -1,19 +1,61 @@
 <html>
   <head>
     <style>
-      * {
+      html {
         box-sizing: border-box;
-        position: relative;
-        margin: 0px;
       }
+      
+      *,
+      *:before,
+      *:after {
+        box-sizing: inherit;
+      }
+      
+      body {
+        font-family: "Roboto", "Helvetica", "Arial", Sans-Serif;
+        background-color: #f6f6f6;
+        font-size: 16px;
+        margin: 0;
+      }
+      
+      .container {
+        display: flex;
+        flex-flow: row wrap;
+        text-align: center;
+      }
+
+      .container > * {
+        flex: 1 100%;
+      }
+
+      .row {
+        flex: 1 0%;
+      }
+
+      .ticker {
+        font-size: 6vh;
+        height: 10vh;
+        margin: auto;
+      }
+
+      .price {
+        font-size: 5vh;
+        height: 6vh;
+      }
+
     </style>
   </head>
   <body>
     <div class='container'>
-      <div id='goog'></div>
-      <div id='googl'></div>
+      <div class='row'>
+        <div class='ticker'>GOOG</div>
+        <div class='price' id='goog'></div>
+      </div>
+      <div class='row'>
+        <div class='ticker'>GOOGL</div>
+        <div class='price' id='googl'></div>
+      </div>
       <div id='diff'></div>
-      <div id='pctdiff'></div>
       <div id='nytime'></div>
       <canvas id='graph'></canvas>
     </div>
@@ -32,7 +74,6 @@
         const goog = document.getElementById('goog');
         const googl = document.getElementById('googl');
         const diff = document.getElementById('diff');
-        const pctDiff = document.getElementById('pctdiff');
         const nYTime = document.getElementById('nytime');
     
         // Subscribe to web socket for real-time stock data
@@ -42,11 +83,10 @@
           const socket = new WebSocket('wss://ws.finnhub.io?token=c6aifiiad3id24fn2m00');
 
           // set default values for document elements
-          goog.innerText = symbols[0] + ': No data yet';
-          googl.innerText = symbols[1] + ': No data yet';
-          diff.innerText = 'Difference: No data yet';
-          pctDiff.innerText = 'PctDiff: No data yet';
-          nYTime.innerText = 'Time in NY: ' + new Date().toLocaleString('en-US', {timeZone: 'America/New_York'});
+          goog.innerText = 'No data yet';
+          googl.innerText = 'No data yet';
+          diff.innerText = 'Diff: No data yet';
+          nYTime.innerText = `Time in NY: ${new Date().toLocaleString('en-US', {timeZone: 'America/New_York'})}`;
           
           // open an event listener on the web socket and subscribe to stock price updates
           socket.addEventListener('open', (event) => {
@@ -65,18 +105,16 @@
                 const date = new Date(obj.t);
                 objMinutes = date.getMinutes();
                 if (obj.s === symbols[0]) {
-                  goog.innerText = symbols[0] + ': ' + (obj.p).toFixed(2);
+                  goog.innerText = '' + (obj.p).toFixed(2);
                   lastValue[0] = obj.p;
                 }
                 if (obj.s === symbols[1]) {
-                  googl.innerText = symbols[1] + ': ' + (obj.p).toFixed(2);
+                  googl.innerText = '' + (obj.p).toFixed(2);
                   lastValue[1] = obj.p;
                 }
                 diff.innerText = lastValue[0] === 0 ? 'N/A' :
-                  'Difference: ' + (lastValue[0] - lastValue[1]).toFixed(2);
-                pctDiff.innerText = lastValue[0] === 0 ? 'N/A' :
-                  'PctDiff: ' + (100 * (lastValue[0] - lastValue[1]) / lastValue[0]).toFixed(2) + '%';
-                nYTime.innerText = 'Time in NY: ' + date.toLocaleString('en-US', {timeZone: 'America/New_York'});
+                  `Diff: ${(lastValue[0] - lastValue[1]).toFixed(2)} (${(100 * (lastValue[0] - lastValue[1]) / lastValue[0]).toFixed(2)} %)`;
+                nYTime.innerText = `NYC Time: ${date.toLocaleString('en-US', {timeZone: 'America/New_York'})}`;
                 drawPoint();
               }
               if (minutes && minutes !== objMinutes) {
@@ -275,15 +313,20 @@
         
         // get the graph canvas and initialize its size
         const graph = document.getElementById('graph');
-        graph.width = 1000;
-        graph.height = 500;
+        graph.width = window.innerWidth;
+        graph.height = 0.5 * window.innerHeight;
         const ctxGraph = graph.getContext('2d');
         const gParams = {};
 
+        let leftMargin = 0.05 * graph.width;
+        let topMargin = 0.05 * graph.height;
+        let plotWidth = graph.width - 2 * leftMargin;
+        let plotHeight = graph.height - 2 * topMargin;
+
         const drawGraph = (graphData) => {
-          ctxGraph.clearRect(0, 0, 1000, 500);
-          const xPixelsPerDiv = 900 / (graphData.timeStamps.length + 1);
-          let x = 50 + xPixelsPerDiv / 2;
+          ctxGraph.clearRect(0, 0, graph.width, graph.height);
+          const xPixelsPerDiv = plotWidth / (graphData.timeStamps.length + 1);
+          let x = leftMargin + xPixelsPerDiv / 2;
           gParams.xPixelsPerDiv = xPixelsPerDiv;
           gParams.dataLength = graphData.timeStamps.length;
     
@@ -292,7 +335,7 @@
           const graphRange = graphMaxY - graphMinY;
           gParams.graphRange = graphRange;
           const graphZeroRatio = graphMinY < 0 ? graphMaxY / graphRange : 1;
-          const yPxPerDollar = 400 / graphRange;
+          const yPxPerDollar = plotHeight / graphRange;
           gParams.graphZeroRatio = graphZeroRatio;
           gParams.yPxPerDollar = yPxPerDollar;
   
@@ -301,11 +344,12 @@
           const qHoursWidth = graphData.qHours.highDiff.length * xPixelsPerDiv;
           const minutesWidth = graphData.minutes.highDiff.length * xPixelsPerDiv;
           ctxGraph.fillStyle = 'rgba(0,0,0,0.4)';
-          ctxGraph.fillRect(50, 50, daysWidth, 400);
+          ctxGraph.fillRect(leftMargin, topMargin, daysWidth, plotHeight);
           ctxGraph.fillStyle = 'rgba(0,0,0,0.2)';
-          ctxGraph.fillRect(50 + daysWidth, 50, qHoursWidth, 400);
+          ctxGraph.fillRect(leftMargin + daysWidth, topMargin, qHoursWidth, plotHeight);
           ctxGraph.fillStyle = 'rgba(0,0,0,0.1)';
-          ctxGraph.fillRect(50 + daysWidth + qHoursWidth, 50, minutesWidth + xPixelsPerDiv, 400);
+          ctxGraph.fillRect(leftMargin + daysWidth + qHoursWidth, topMargin,
+            minutesWidth + xPixelsPerDiv, plotHeight);
   
           // Draw axes and tick marks
           ctxGraph.fillStyle = 'black';
@@ -313,21 +357,21 @@
           ctxGraph.lineCap = 'square';
           ctxGraph.lineWidth = 1;
           ctxGraph.beginPath();
-          ctxGraph.moveTo(50, 450);
-          ctxGraph.lineTo(50, 50);
-          ctxGraph.moveTo(50, 50 + 400 * graphZeroRatio);
-          ctxGraph.lineTo(950, 50 + 400 * graphZeroRatio);
+          ctxGraph.moveTo(leftMargin, topMargin + plotHeight);
+          ctxGraph.lineTo(leftMargin, topMargin);
+          ctxGraph.moveTo(leftMargin, topMargin + plotHeight * graphZeroRatio);
+          ctxGraph.lineTo(leftMargin + plotWidth, topMargin + plotHeight * graphZeroRatio);
           ctxGraph.stroke();
           const ticks = graphMaxY - graphMinY + 1;
           for (let tick = 0; tick < ticks; tick++) {
             if (tick % 10 === 0) {
-              ctxGraph.moveTo(45, 50 + tick * yPxPerDollar);
-              ctxGraph.lineTo(50, 50 + tick * yPxPerDollar);
+              ctxGraph.moveTo(0.9 * leftMargin, topMargin + tick * yPxPerDollar);
+              ctxGraph.lineTo(leftMargin, topMargin + tick * yPxPerDollar);
               ctxGraph.stroke();
               ctxGraph.textBaseline = 'middle';
               ctxGraph.textAlign = 'right';
-              ctxGraph.font = '15px sans-serif';
-              ctxGraph.fillText('' + graphMaxY - tick, 40, 50 + tick * yPxPerDollar);
+              ctxGraph.font = '' + 0.05 * plotHeight + 'px sans-serif';
+              ctxGraph.fillText('' + graphMaxY - tick, 0.8 * leftMargin, topMargin + tick * yPxPerDollar);
             }
           }
 
@@ -345,10 +389,10 @@
               subIndex = index - graphData.days.highDiff.length;
               ctxGraph.strokeStyle = 'blue';
             }
-            const yLow = 50 + (graphZeroRatio * graphRange - graphSub.lowDiff[subIndex]) * yPxPerDollar;
-            const yHigh = 50 + (graphZeroRatio * graphRange - graphSub.highDiff[subIndex]) * yPxPerDollar;
-            const yOpen = 50 + (graphZeroRatio * graphRange - graphSub.openDiff[subIndex]) * yPxPerDollar;
-            const yClose = 50 + (graphZeroRatio * graphRange - graphSub.closeDiff[subIndex]) * yPxPerDollar;
+            const yLow = topMargin + (graphZeroRatio * graphRange - graphSub.lowDiff[subIndex]) * yPxPerDollar;
+            const yHigh = topMargin + (graphZeroRatio * graphRange - graphSub.highDiff[subIndex]) * yPxPerDollar;
+            const yOpen = topMargin + (graphZeroRatio * graphRange - graphSub.openDiff[subIndex]) * yPxPerDollar;
+            const yClose = topMargin + (graphZeroRatio * graphRange - graphSub.closeDiff[subIndex]) * yPxPerDollar;
             ctxGraph.strokeStyle = yOpen >= yClose ? 'green' : 'red';
             ctxGraph.lineWidth = 2;
             ctxGraph.beginPath();
@@ -371,8 +415,8 @@
             ctxGraph.fillStyle = 'rgba(255,255,0,.2)';
             ctxGraph.beginPath();
             ctxGraph.arc(
-              50 + gParams.xPixelsPerDiv * (0.5 + gParams.dataLength),
-              50 + (gParams.graphZeroRatio * gParams.graphRange - instDiff) * gParams.yPxPerDollar,
+              leftMargin + gParams.xPixelsPerDiv * (0.5 + gParams.dataLength),
+              topMargin + (gParams.graphZeroRatio * gParams.graphRange - instDiff) * gParams.yPxPerDollar,
               3, 0, 2 * Math.PI
             );
             ctxGraph.fill();
@@ -383,11 +427,9 @@
           if (lastValue[0] === 0 && lastValue[1] === 0) {
             const googPrice = results[symbols[0]].c.at(-1);
             const googlPrice = results[symbols[1]].c.at(-1);
-            goog.innerText = symbols[0] + ': ' + (googPrice).toFixed(2);
-            googl.innerText = symbols[1] + ': ' + (googlPrice).toFixed(2);
-            diff.innerText = 'Difference: ' + (googPrice - googlPrice).toFixed(2);
-            pctDiff.innerText = 'PctDiff: ' + (100 * (googPrice - googlPrice) / googPrice).toFixed(2) + '%';
-            nYTime.innerText = nYTime.innerText + ' - MARKET CLOSED';
+            goog.innerText = '' + (googPrice).toFixed(2);
+            googl.innerText = '' + (googlPrice).toFixed(2);
+            diff.innerText = `Diff: ${(googPrice - googlPrice).toFixed(2)} (${(100 * (googPrice - googlPrice) / googPrice).toFixed(2)} %)`;
           }
         }
 
