@@ -326,11 +326,11 @@
         window.onresize = () => {
           graph.width = window.innerWidth;
           graph.height = window.innerHeight < window.innerWidth ?
-            0.75 * window.innerHeight : 0.85 * window.innerHeight;
+            0.75 * window.innerHeight : 0.84 * window.innerHeight;
           leftMargin = 0.08 * graph.width;
-          topMargin = 0.05 * graph.height;
+          topMargin = 0.04 * graph.height;
           plotWidth = graph.width - 1.25 * leftMargin;
-          plotHeight = graph.height - 2 * topMargin;
+          plotHeight = graph.height - 1.5 * topMargin;
           drawGraph();
         }
         
@@ -338,14 +338,14 @@
         const graph = document.getElementById('graph');
         graph.width = window.innerWidth;
         graph.height = window.innerHeight < window.innerWidth ?
-          0.75 * window.innerHeight : 0.85 * window.innerHeight;
+          0.75 * window.innerHeight : 0.84 * window.innerHeight;
         const ctxGraph = graph.getContext('2d');
         const gParams = {};
 
         let leftMargin = 0.08 * graph.width;
-        let topMargin = 0.05 * graph.height;
+        let topMargin = 0.04 * graph.height;
         let plotWidth = graph.width - 1.25 * leftMargin;
-        let plotHeight = graph.height - 2 * topMargin;
+        let plotHeight = graph.height - 1.5 * topMargin;
 
         const drawGraph = () => {
           ctxGraph.clearRect(0, 0, graph.width, graph.height);
@@ -419,12 +419,12 @@
             const yOpen = topMargin + (graphZeroRatio * graphRange - graphSub.openDiff[subIndex]) * yPxPerDollar;
             const yClose = topMargin + (graphZeroRatio * graphRange - graphSub.closeDiff[subIndex]) * yPxPerDollar;
             ctxGraph.strokeStyle = yOpen >= yClose ? 'green' : 'red';
-            ctxGraph.lineWidth = 2;
+            ctxGraph.lineWidth = graph.width * 2 / graph.height;
             ctxGraph.beginPath();
             ctxGraph.moveTo(x, yLow);
             ctxGraph.lineTo(x, yHigh);
             ctxGraph.stroke();
-            ctxGraph.lineWidth = 6;
+            ctxGraph.lineWidth = graph.width * 6 / graph.height;
             ctxGraph.beginPath();
             ctxGraph.moveTo(x, yOpen);
             ctxGraph.lineTo(x, yClose);
