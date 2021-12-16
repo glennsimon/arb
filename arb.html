@@ -110,10 +110,8 @@
           socket.addEventListener('message', (event) => {
             const parsedObj = JSON.parse(event.data);
             if (parsedObj.data) {
-              let objMinutes;
+              let nowMinutes = new Date().getMinutes();
               for (const obj of parsedObj.data) {
-                const date = new Date(obj.t);
-                objMinutes = date.getMinutes();
                 if (obj.s === symbols[0]) {
                   goog.innerText = '' + (obj.p).toFixed(2);
                   lastValue[0] = obj.p;
@@ -124,14 +122,14 @@
                 }
                 diff.innerText = lastValue[0] === 0 ? 'N/A' :
                   `Diff: ${(lastValue[0] - lastValue[1]).toFixed(2)} (${(100 * (lastValue[0] - lastValue[1]) / lastValue[0]).toFixed(2)} %)`;
-                nYTime.innerText = `NYC Time: ${date.toLocaleString('en-US', {timeZone: 'America/New_York'})}`;
+                nYTime.innerText = `NYC Time: ${new Date(obj.t).toLocaleString('en-US', {timeZone: 'America/New_York'})}`;
                 drawPoint();
               }
-              if (minutes && minutes !== objMinutes) {
+              if (minutes && (minutes < nowMinutes || minutes - nowMinutes === 59)) {
                 results = {};
                 fetchCandles();
               }
-              minutes = objMinutes;
+              minutes = nowMinutes;
             } else {
               console.log('non-data object: ' + event.data);
             }
