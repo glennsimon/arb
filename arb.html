@@ -148,26 +148,67 @@
     
           // define data set
           const candleBaseUrl = 'https://finnhub.io/api/v1/stock/candle?symbol=';
+          const secondsPerWeek = 7 * 24 * 60 * 60;
+          const aWeekAgo = now - secondsPerWeek;
           const secondsPer30Days = 30 * 24 * 60 * 60;
           const thirtyDaysAgo = now - secondsPer30Days;
-    
-          // allowable resolutions: 1, 5, 15, 30, 60, D, W, M - all strings, numbers represent minutes
-          // this program will always use 1 minute interval
-          const resolution = '1';
+          const secondsPerYear = 365 * 24 * 60 * 60;
+          const aYearAgo = now - secondsPerYear;
     
           // fetch the data from finnhub
           for (const symbol of symbols) {
-            fetch(candleBaseUrl + symbol + '&resolution=' + resolution + '&from=' + thirtyDaysAgo + '&to=' + now + '&token=c6aifiiad3id24fn2m00')
+            results[symbol] = {};
+            // from date is a year ago, resolution is months
+            let from = now - 365 * 24 * 60 * 60;
+            let resolution = 'M';
+
+            fetch(candleBaseUrl + symbol + '&resolution=' + resolution + '&from=' + from + '&to=' + now + '&token=c6aifiiad3id24fn2m00')
             .then((response) => {
               return response.json();
             })
             .then((obj) => {
               // load the results array
               // console.log(obj);
-              results[symbol] = obj;
-              if (symbols[0] in results && symbols[1] in results) {
-                processData();
-              }
+              results[symbol][resolution] = obj;
+            })
+            .then(() => {
+              // from date is 30 days ago, resolution is days
+              from = now - 30 * 24 * 60 * 60;
+              resolution = 'D';
+              fetch(candleBaseUrl + symbol + '&resolution=' + resolution + '&from=' + from + '&to=' + now + '&token=c6aifiiad3id24fn2m00')
+                .then((response) => {
+                return response.json();
+              })
+              .then((obj) => {
+                // load the results array
+                // console.log(obj);
+                results[symbol][resolution] = obj;
+              })
+              .then(() => {
+                // from date last timestamp in 'D' data, resolution is minutes
+                from = results[symbol][resolution].t.slice(-1);
+                resolution = '1';
+                fetch(candleBaseUrl + symbol + '&resolution=' + resolution + '&from=' + from + '&to=' + now + '&token=c6aifiiad3id24fn2m00')
+                  .then((response) => {
+                  return response.json();
+                })
+                .then((obj) => {
+                  // load the results array
+                  // console.log(obj);
+                  results[symbol][resolution] = obj;
+                  if (results[symbols[0]].M && results[symbols[1]].M &&
+                      results[symbols[0]].D && results[symbols[1]].D &&
+                      results[symbols[0]]['1'] && results[symbols[1]]['1']) {
+                    processData();
+                  }
+                })
+                .catch((error) => {
+                  console.error('Error fetching data: ', error);
+                });
+              })
+              .catch((error) => {
+                console.error('Error fetching data: ', error);
+              });
             })
             .catch((error) => {
               console.error('Error fetching data: ', error);
@@ -175,56 +216,50 @@
           }
         }
 
-  
-        // Eliminate data elements from symbolA data that are not included
+        // Eliminate data elements from symbolA 1 minute data that are not included
         // in symbolB data, and are outside of normal exchange hours.
         // This only works in the Pacific time zone because of the hours and
         // minutes specified in the culling filter.
         const cullSpurious = (symbolA, symbolB) => {
-          for (let index = results[symbolA].t.length - 1; index > -1; index--) {
-            const dateInSeconds = results[symbolA].t[index];
+          for (let index = results[symbolA]['1'].t.length - 1; index > -1; index--) {
+            const dateInSeconds = results[symbolA]['1'].t[index];
             const date = new Date(dateInSeconds * 1000);
             // culling filter
             if ((date.getHours() < 7 && date.getMinutes() < 31) ||
               date.getHours() < 6 ||
               (date.getHours() > 12 && date.getMinutes() > 0) ||
-              !results[symbolB].t.includes(dateInSeconds) || 
+              !results[symbolB]['1'].t.includes(dateInSeconds) || 
               date.getDay() === 0 ||
               date.getDay() === 6) {
-              for (elem in results[symbolA]) {
-                if (typeof(results[symbolA][elem]) === 'object') {
-                  results[symbolA][elem].splice(index, 1);
+              for (elem in results[symbolA]['1']) {
+                if (typeof(results[symbolA]['1'][elem]) === 'object') {
+                  results[symbolA]['1'][elem].splice(index, 1);
                 }
               }
             }
           }
         }
 
-        // Returns an array of indices in <results> spaced <minutes> apart
+        // Returns an array of indices in last day of <results> spaced <minutes> apart
         const idxEngine = (minutes) => {
-          const idxArray = [0];
           // const firstMinute = results[symbols[0]].t[0];
-          const date = new Date(results[symbols[0]].t[0] * 1000);
-          let prevDay = date.getDay();
+          const date = new Date(results[symbols[0]]['1'].t[0] * 1000);
+          const monthDayOffset = results[symbols[0]].M.t.length + results[symbols[0]].D.t.length;
+          const idxArray = [monthDayOffset];
+
           let prevHour = date.getHours();
           let prevMin = minutes * Math.floor(date.getMinutes() / minutes);
           let incr = 1;
-          for (let idx = 0; idx < results[symbols[0]].t.length; idx++) {
-            const nextDate = new Date(results[symbols[0]].t[idx] * 1000);
-            let nextDay = nextDate.getDay();
+          for (let idx = 0; idx < results[symbols[0]]['1'].t.length; idx++) {
+            const nextDate = new Date(results[symbols[0]]['1'].t[idx] * 1000);
             let nextHour = nextDate.getHours();
             let nextMin = nextDate.getMinutes();
-            if (prevDay !== nextDay) {
-              idxArray.push(idx);
-              prevDay = nextDay;
-              prevHour = nextHour;
-              prevMin = minutes * Math.floor(nextMin / minutes);
-            } else if (minutes <= 60 && prevHour != nextHour && nextHour !== 13) { // time zone dependent (hour 13)
-              idxArray.push(idx + 1); // add 1 to include time until top of hour in data
+            if (minutes <= 60 && prevHour != nextHour && nextHour !== 13) { // time zone dependent (hour 13)
+              idxArray.push(monthDayOffset + idx + 1); // add 1 to include time until top of hour in data
               prevHour = nextHour;
               prevMin = minutes * Math.floor(nextMin / minutes);
             } else if (nextMin - prevMin > minutes) {
-              idxArray.push(idx);
+              idxArray.push(monthDayOffset + idx);
               prevMin = minutes * Math.floor(nextMin / minutes);
             }
           }
@@ -232,20 +267,20 @@
         }
 
         // load graphData with results data based on indicesArray elements and return new graphData object
-        const loadGraphData = (startIndex, endIndex, indicesArray, timespan, graphData) => {
+        const loadGraphData = (startIndex, endIndex, indicesArray, timespan) => {
           // if empty, initialize graphData object
-          if (! graphData.timeStamps) {
-            graphData.maxY = 0;
-            graphData.minY = 0;
-            graphData.timeStamps = [];
-            for (objName of ['days', 'qHours', 'minutes']) {
-              graphData[objName] = {};
-              graphData[objName].lowDiff = [];
-              graphData[objName].highDiff = [];
-              graphData[objName].openDiff = [];
-              graphData[objName].closeDiff = [];
-            }
-          }
+          // if (! graphData.timeStamps) {
+          //   graphData.maxY = 0;
+          //   graphData.minY = 0;
+          //   graphData.timeStamps = [];
+          //   for (objName of ['months', 'days', 'qHours', 'minutes']) {
+          //     graphData[objName] = {};
+          //     graphData[objName].lowDiff = [];
+          //     graphData[objName].highDiff = [];
+          //     graphData[objName].openDiff = [];
+          //     graphData[objName].closeDiff = [];
+          //   }
+          // }
   
           // Load graphData with results data based on indicesArray
           for (let idx = startIndex; idx < endIndex; idx++) {
@@ -266,11 +301,23 @@
             graphData.maxY = highY > graphData.maxY ? highY : graphData.maxY;
             graphData.minY = lowY < graphData.minY ? lowY : graphData.minY;
           }
-          return graphData;
+        }
+
+        // get rid of extra data (partial month and day) at end of month and day arrays in results
+        const popLastMonthDay = () => {
+          for (symbol of symbols) {
+            for (per of ['M', 'D']) {
+              for (ary in results[symbol][per]) {
+                if (typeof(results[symbol][per][ary]) === 'object') {
+                  results[symbol][per][ary].pop();
+                }
+              }
+            }
+          }
         }
 
         // declare graphData object
-        let graphData = {};
+        let graphData;
 
         // Performs multiple processing steps to filter the data and load graphData object
         const processData = () => {
@@ -287,39 +334,73 @@
           cullSpurious(symbols[1], symbols[0]);
   
           // console.log(results);
+
+          popLastMonthDay();
   
           // Declare and load arrays for indices of first occurrance of day/hour in results
-          const dayIndices = idxEngine(24 * 60);
+          // const dayIndices = idxEngine(24 * 60);
           const qHourIndices = idxEngine(15);
+
+          // // get last month and last day index
+          // const lastMonthIndex = results[symbols[0]].M.t.length;
+          // const lastDayIndex = results[symbols[0]].M.t.length;
+
+          for (symbol of symbols) {
+            results[symbol].timeStamps = results[symbol].M.t.concat(results[symbol].D.t).concat(results[symbol]['1'].t);
+            results[symbol].highs = results[symbol].M.h.concat(results[symbol].D.h).concat(results[symbol]['1'].h);
+            results[symbol].lows = results[symbol].M.l.concat(results[symbol].D.l).concat(results[symbol]['1'].l);
+            results[symbol].opens = results[symbol].M.o.concat(results[symbol].D.o).concat(results[symbol]['1'].o);
+            results[symbol].closes = results[symbol].M.c.concat(results[symbol].D.c).concat(results[symbol]['1'].c);
+          }
   
           // get diff data for each data point
-          results.highDiff = results[symbols[0]].h.map((n, i) =>
-            n - results[symbols[1]].h[i] > results[symbols[0]].l[i] - results[symbols[1]].l[i] ?
-            n - results[symbols[1]].h[i] : results[symbols[0]].l[i] - results[symbols[1]].l[i]
+          results.highDiff = results[symbols[0]].highs.map((n, i) =>
+            n - results[symbols[1]].highs[i] > results[symbols[0]].lows[i] - results[symbols[1]].lows[i] ?
+            n - results[symbols[1]].highs[i] : results[symbols[0]].lows[i] - results[symbols[1]].lows[i]
           );
-          results.lowDiff = results[symbols[0]].l.map((n, i) =>
-            n - results[symbols[1]].l[i] < results[symbols[0]].h[i] - results[symbols[1]].h[i] ?
-            n - results[symbols[1]].l[i] : results[symbols[0]].h[i] - results[symbols[1]].h[i]
+          results.lowDiff = results[symbols[0]].lows.map((n, i) =>
+            n - results[symbols[1]].lows[i] < results[symbols[0]].highs[i] - results[symbols[1]].highs[i] ?
+            n - results[symbols[1]].lows[i] : results[symbols[0]].highs[i] - results[symbols[1]].highs[i]
           );
-          results.openDiff = results[symbols[0]].o.map((n, i) => n - results[symbols[1]].o[i]);  // subract low GOOG from low GOOGL
-          results.closeDiff = results[symbols[0]].c.map((n, i) => n - results[symbols[1]].c[i]);  // subract low GOOG from low GOOGL
+          results.openDiff = results[symbols[0]].opens.map((n, i) => n - results[symbols[1]].opens[i]);  // subract low GOOG from low GOOGL
+          results.closeDiff = results[symbols[0]].closes.map((n, i) => n - results[symbols[1]].closes[i]);  // subract low GOOG from low GOOGL
   
+          // initialize graphData
           graphData = {};
+          graphData.maxY = 0;
+          graphData.minY = 0;
+          graphData.timeStamps = [];
+          for (objName of ['months', 'days', 'qHours', 'minutes']) {
+            graphData[objName] = {};
+            graphData[objName].lowDiff = [];
+            graphData[objName].highDiff = [];
+            graphData[objName].openDiff = [];
+            graphData[objName].closeDiff = [];
+          }
+
+          // load graphData with months data
+          const monthStartIndex = 1;
+          const monthEndIndex = results[symbols[0]].M.t.length;
+          const monthIndexArray = [...results[symbols[0]].M.t.map((n, i) => i)];
+          loadGraphData(monthStartIndex, monthEndIndex, monthIndexArray, 'months');
 
           // load graphData with days data
-          graphData = loadGraphData(1, dayIndices.length - 1, dayIndices, 'days', graphData);
+          const dayStartIndex = monthEndIndex;
+          const dayEndIndex = dayStartIndex + results[symbols[0]].D.t.length;
+          const dayIndexArray = [...results[symbols[0]].D.t.map((n, i) => i + dayStartIndex)]
+          loadGraphData(dayStartIndex, dayEndIndex, dayIndexArray, 'days');
 
           // load graphData with qHours data
-          let lastDayIndex = dayIndices[dayIndices.length - 1];
-          let startIndex = qHourIndices.indexOf(lastDayIndex);
-          graphData = loadGraphData(startIndex, qHourIndices.length - 1, qHourIndices, 'qHours', graphData);
+          const qHoursStartIndex = dayEndIndex;
+          const qHoursEndIndex = qHourIndices.length - 1;
+          loadGraphData(qHoursStartIndex, qHoursEndIndex, qHourIndices, 'qHours');
 
           // load graphData with minutes data
-          const resultsLength = results[symbols[0]].t.length;
-          startIndex = resultsLength - 15;
-          startIndex = startIndex > lastDayIndex ? startIndex : lastDayIndex; // should this be lastDayIndex + 1
-          const minuteIndices = results[symbols[0]].t.slice(startIndex, resultsLength).map((n, i) => i + startIndex);
-          loadGraphData(0, minuteIndices.length, minuteIndices, 'minutes', graphData);
+          const resultsLength = results[symbols[0]]['1'].t.length;
+          let minuteStartIndex = dayEndIndex + resultsLength - 15;
+          minuteStartIndex = minuteStartIndex > dayEndIndex ? minuteStartIndex : dayEndIndex;
+          const minuteIndexArray = [...results[symbols[0]]['1'].t.map((n, i) => i + minuteStartIndex)]
+          loadGraphData(minuteStartIndex, results[symbols[0]].timeStamps.length, minuteIndexArray, 'minutes');
 
           console.log(graphData);
           drawGraph();
@@ -453,8 +534,8 @@
 
         const handleAfterHours = () => {
           if (lastValue[0] === 0 && lastValue[1] === 0) {
-            const googPrice = results[symbols[0]].c.at(-1);
-            const googlPrice = results[symbols[1]].c.at(-1);
+            const googPrice = results[symbols[0]]['1'].c.at(-1);
+            const googlPrice = results[symbols[1]]['1'].c.at(-1);
             goog.innerText = '' + (googPrice).toFixed(2);
             googl.innerText = '' + (googlPrice).toFixed(2);
             diff.innerText = `Diff: ${(googPrice - googlPrice).toFixed(2)} (${(100 * (googPrice - googlPrice) / googPrice).toFixed(2)} %)`;
