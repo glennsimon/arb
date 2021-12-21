@@ -266,43 +266,6 @@
           return idxArray;
         }
 
-        // load graphData with results data based on indicesArray elements and return new graphData object
-        const loadGraphData = (startIndex, endIndex, indicesArray, timespan) => {
-          // if empty, initialize graphData object
-          // if (! graphData.timeStamps) {
-          //   graphData.maxY = 0;
-          //   graphData.minY = 0;
-          //   graphData.timeStamps = [];
-          //   for (objName of ['months', 'days', 'qHours', 'minutes']) {
-          //     graphData[objName] = {};
-          //     graphData[objName].lowDiff = [];
-          //     graphData[objName].highDiff = [];
-          //     graphData[objName].openDiff = [];
-          //     graphData[objName].closeDiff = [];
-          //   }
-          // }
-  
-          // Load graphData with results data based on indicesArray
-          for (let idx = startIndex; idx < endIndex; idx++) {
-            // graphData.timeStamps.push(results[symbols[0]].t.slice(indicesArray[idx], indicesArray[idx + 1])[0]);
-            graphData.timeStamps.push(results[symbols[0]].t[indicesArray[idx]]);
-            const highY = Math.max(...results.highDiff.slice(indicesArray[idx], indicesArray[idx + 1]));
-            const lowY = Math.min(...results.lowDiff.slice(indicesArray[idx], indicesArray[idx + 1]));
-            const openY = results.openDiff[indicesArray[idx]];
-            // closeIndex calc is to make sure the close is captured for the last minute of data
-            const closeIndex =
-              indicesArray[idx] === results[symbols[0]].t.length - 1 ?
-              indicesArray[idx] : indicesArray[idx + 1] - 1;
-            const closeY = results.closeDiff[closeIndex];
-            graphData[timespan].highDiff.push(highY);
-            graphData[timespan].lowDiff.push(lowY);
-            graphData[timespan].openDiff.push(openY);
-            graphData[timespan].closeDiff.push(closeY);
-            graphData.maxY = highY > graphData.maxY ? highY : graphData.maxY;
-            graphData.minY = lowY < graphData.minY ? lowY : graphData.minY;
-          }
-        }
-
         // get rid of extra data (partial month and day) at end of month and day arrays in results
         const popLastMonthDay = () => {
           for (symbol of symbols) {
@@ -316,10 +279,7 @@
           }
         }
 
-        // declare graphData object
-        let graphData;
-
-        // Performs multiple processing steps to filter the data and load graphData object
+        // Performs multiple processing steps to filter and prep the results data for graphing
         const processData = () => {
           // console.log(results.GOOG.c.slice(-10));
           // console.log(results.GOOG.v.slice(-10));
@@ -346,7 +306,7 @@
           // const lastDayIndex = results[symbols[0]].M.t.length;
 
           for (symbol of symbols) {
-            results[symbol].timeStamps = results[symbol].M.t.concat(results[symbol].D.t).concat(results[symbol]['1'].t);
+            results.timeStamps = results[symbol].M.t.concat(results[symbol].D.t).concat(results[symbol]['1'].t);
             results[symbol].highs = results[symbol].M.h.concat(results[symbol].D.h).concat(results[symbol]['1'].h);
             results[symbol].lows = results[symbol].M.l.concat(results[symbol].D.l).concat(results[symbol]['1'].l);
             results[symbol].opens = results[symbol].M.o.concat(results[symbol].D.o).concat(results[symbol]['1'].o);
@@ -364,47 +324,65 @@
           );
           results.openDiff = results[symbols[0]].opens.map((n, i) => n - results[symbols[1]].opens[i]);  // subract low GOOG from low GOOGL
           results.closeDiff = results[symbols[0]].closes.map((n, i) => n - results[symbols[1]].closes[i]);  // subract low GOOG from low GOOGL
+
+          results.maxY = 0;
+          results.minY = 0;
   
-          // initialize graphData
-          graphData = {};
-          graphData.maxY = 0;
-          graphData.minY = 0;
-          graphData.timeStamps = [];
-          for (objName of ['months', 'days', 'qHours', 'minutes']) {
-            graphData[objName] = {};
-            graphData[objName].lowDiff = [];
-            graphData[objName].highDiff = [];
-            graphData[objName].openDiff = [];
-            graphData[objName].closeDiff = [];
+          // load months data
+          let startIndex = 1;
+          let endIndex = results[symbols[0]].M.t.length;
+          loadData('months', startIndex, endIndex);
+
+          // load days data
+          startIndex = endIndex;
+          endIndex = startIndex + results[symbols[0]].D.t.length;
+          loadData('days', startIndex, endIndex);
+
+          // load qHours data
+          results.qHours = {};
+          for (name of ['timeStamps', 'lowDiff', 'highDiff', 'openDiff', 'closeDiff']) {
+            results.qHours[name] = [];
+          }
+          for (let idx = 0; idx < qHourIndices.length; idx++) {
+            results.qHours.timeStamps.push(results.timeStamps[qHourIndices[idx]]);
+            const highY = Math.max(...results.highDiff.slice(qHourIndices[idx], qHourIndices[idx + 1]));
+            const lowY = Math.min(...results.lowDiff.slice(qHourIndices[idx], qHourIndices[idx + 1]));
+            const openY = results.openDiff[qHourIndices[idx]];
+            // closeIndex calc is to make sure the close is captured for the last minute of data
+            const closeIndex =
+              qHourIndices[idx] === results.timeStamps.length - 1 ?
+              qHourIndices[idx] : qHourIndices[idx + 1] - 1;
+            const closeY = results.closeDiff[closeIndex];
+            results.qHours.highDiff.push(highY);
+            results.qHours.lowDiff.push(lowY);
+            results.qHours.openDiff.push(openY);
+            results.qHours.closeDiff.push(closeY);
+            results.maxY = highY > results.maxY ? highY : results.maxY;
+            results.minY = lowY < results.minY ? lowY : results.minY;
           }
 
-          // load graphData with months data
-          const monthStartIndex = 1;
-          const monthEndIndex = results[symbols[0]].M.t.length;
-          const monthIndexArray = [...results[symbols[0]].M.t.map((n, i) => i)];
-          loadGraphData(monthStartIndex, monthEndIndex, monthIndexArray, 'months');
+          // load minutes data
+          const resultsLength = results.timeStamps.length;
+          startIndex = resultsLength - 15;
+          startIndex = startIndex > endIndex ? startIndex : endIndex;
+          endIndex = results.timeStamps.length;
+          loadData('minutes', startIndex, endIndex);
 
-          // load graphData with days data
-          const dayStartIndex = monthEndIndex;
-          const dayEndIndex = dayStartIndex + results[symbols[0]].D.t.length;
-          const dayIndexArray = [...results[symbols[0]].D.t.map((n, i) => i + dayStartIndex)]
-          loadGraphData(dayStartIndex, dayEndIndex, dayIndexArray, 'days');
-
-          // load graphData with qHours data
-          const qHoursStartIndex = dayEndIndex;
-          const qHoursEndIndex = qHourIndices.length - 1;
-          loadGraphData(qHoursStartIndex, qHoursEndIndex, qHourIndices, 'qHours');
-
-          // load graphData with minutes data
-          const resultsLength = results[symbols[0]]['1'].t.length;
-          let minuteStartIndex = dayEndIndex + resultsLength - 15;
-          minuteStartIndex = minuteStartIndex > dayEndIndex ? minuteStartIndex : dayEndIndex;
-          const minuteIndexArray = [...results[symbols[0]]['1'].t.map((n, i) => i + minuteStartIndex)]
-          loadGraphData(minuteStartIndex, results[symbols[0]].timeStamps.length, minuteIndexArray, 'minutes');
-
-          console.log(graphData);
+          console.log(results);
           drawGraph();
           console.log('done');
+        }
+
+        const loadData = (dataName, startIndex, endIndex) => {
+          results[dataName] = {};
+          results[dataName].timeStamps = results.timeStamps.slice(startIndex, endIndex);
+          for (name of ['lowDiff', 'highDiff', 'openDiff', 'closeDiff']) {
+            results[dataName][name] = results[name].slice(startIndex, endIndex);
+            const highY = Math.max(...results[dataName][name]);
+            const lowY = Math.min(...results[dataName][name]);
+            results.maxY = highY > results.maxY ? highY : results.maxY;
+            results.minY = lowY < results.minY ? lowY : results.minY;
+          }
         }
 
         window.onresize = () => {
@@ -432,14 +410,18 @@
         let plotHeight = graph.height - 1.5 * topMargin;
 
         const drawGraph = () => {
+          let plotDataLength = 0;
+          for (name of ['months', 'days', 'qHours', 'minutes']) {
+            plotDataLength += results[name].timeStamps.length;
+          }
           ctxGraph.clearRect(0, 0, graph.width, graph.height);
-          const xPixelsPerDiv = plotWidth / (graphData.timeStamps.length + 1);
+          const xPixelsPerDiv = plotWidth / (plotDataLength + 1);
           let x = leftMargin + xPixelsPerDiv / 2;
           gParams.xPixelsPerDiv = xPixelsPerDiv;
-          gParams.dataLength = graphData.timeStamps.length;
+          gParams.dataLength = plotDataLength;
     
-          const graphMinY = 10 * Math.floor(graphData.minY / 10);
-          const graphMaxY = 10 * Math.ceil(graphData.maxY / 10);
+          const graphMinY = 10 * Math.floor(results.minY / 10);
+          const graphMaxY = 10 * Math.ceil(results.maxY / 10);
           const graphRange = graphMaxY - graphMinY;
           gParams.graphRange = graphRange;
           const graphZeroRatio = graphMinY < 0 ? graphMaxY / graphRange : 1;
@@ -448,15 +430,18 @@
           gParams.yPxPerDollar = yPxPerDollar;
   
           // Draw shading
-          const daysWidth = graphData.days.highDiff.length * xPixelsPerDiv;
-          const qHoursWidth = graphData.qHours.highDiff.length * xPixelsPerDiv;
-          const minutesWidth = graphData.minutes.highDiff.length * xPixelsPerDiv;
+          const monthsWidth = results.months.timeStamps.length * xPixelsPerDiv;
+          const daysWidth = results.days.timeStamps.length * xPixelsPerDiv;
+          const qHoursWidth = results.qHours.timeStamps.length * xPixelsPerDiv;
+          const minutesWidth = results.minutes.timeStamps.length * xPixelsPerDiv;
           ctxGraph.fillStyle = 'rgba(0,0,0,0.4)';
-          ctxGraph.fillRect(leftMargin, topMargin, daysWidth, plotHeight);
+          ctxGraph.fillRect(leftMargin, topMargin, monthsWidth, plotHeight);
+          ctxGraph.fillStyle = 'rgba(0,0,0,0.3)';
+          ctxGraph.fillRect(leftMargin + monthsWidth, topMargin, daysWidth, plotHeight);
           ctxGraph.fillStyle = 'rgba(0,0,0,0.2)';
-          ctxGraph.fillRect(leftMargin + daysWidth, topMargin, qHoursWidth, plotHeight);
+          ctxGraph.fillRect(leftMargin + monthsWidth + daysWidth, topMargin, qHoursWidth, plotHeight);
           ctxGraph.fillStyle = 'rgba(0,0,0,0.1)';
-          ctxGraph.fillRect(leftMargin + daysWidth + qHoursWidth, topMargin,
+          ctxGraph.fillRect(leftMargin + monthsWidth + daysWidth + qHoursWidth, topMargin,
             minutesWidth + xPixelsPerDiv, plotHeight);
   
           // Draw axes and tick marks
@@ -485,35 +470,26 @@
           }
 
           // Draw data values
-          for (let index = 0; index < graphData.timeStamps.length; index++) {
-            let graphSub = graphData.days;
-            let subIndex = index;
-            ctxGraph.strokeStyle = 'magenta';
-            if (index >= graphData.timeStamps.length - graphData.minutes.highDiff.length) {
-              graphSub = graphData.minutes;
-              subIndex = index - (graphData.timeStamps.length - graphData.minutes.highDiff.length);
-              ctxGraph.strokeStyle = 'red';
-            } else if (index >= graphData.days.highDiff.length) {
-              graphSub = graphData.qHours;
-              subIndex = index - graphData.days.highDiff.length;
-              ctxGraph.strokeStyle = 'blue';
+          for (period of ['months', 'days', 'qHours', 'minutes']) {
+            const graphSub = results[period];
+            for (let index = 0; index < graphSub.timeStamps.length; index++) {
+              const yLow = topMargin + (graphZeroRatio * graphRange - graphSub.lowDiff[index]) * yPxPerDollar;
+              const yHigh = topMargin + (graphZeroRatio * graphRange - graphSub.highDiff[index]) * yPxPerDollar;
+              const yOpen = topMargin + (graphZeroRatio * graphRange - graphSub.openDiff[index]) * yPxPerDollar;
+              const yClose = topMargin + (graphZeroRatio * graphRange - graphSub.closeDiff[index]) * yPxPerDollar;
+              ctxGraph.strokeStyle = yOpen >= yClose ? 'green' : 'red';
+              ctxGraph.lineWidth = graph.width * 2 / graph.height;
+              ctxGraph.beginPath();
+              ctxGraph.moveTo(x, yLow);
+              ctxGraph.lineTo(x, yHigh);
+              ctxGraph.stroke();
+              ctxGraph.lineWidth = graph.width * 6 / graph.height;
+              ctxGraph.beginPath();
+              ctxGraph.moveTo(x, yOpen);
+              ctxGraph.lineTo(x, yClose);
+              ctxGraph.stroke();
+              x += xPixelsPerDiv;
             }
-            const yLow = topMargin + (graphZeroRatio * graphRange - graphSub.lowDiff[subIndex]) * yPxPerDollar;
-            const yHigh = topMargin + (graphZeroRatio * graphRange - graphSub.highDiff[subIndex]) * yPxPerDollar;
-            const yOpen = topMargin + (graphZeroRatio * graphRange - graphSub.openDiff[subIndex]) * yPxPerDollar;
-            const yClose = topMargin + (graphZeroRatio * graphRange - graphSub.closeDiff[subIndex]) * yPxPerDollar;
-            ctxGraph.strokeStyle = yOpen >= yClose ? 'green' : 'red';
-            ctxGraph.lineWidth = graph.width * 2 / graph.height;
-            ctxGraph.beginPath();
-            ctxGraph.moveTo(x, yLow);
-            ctxGraph.lineTo(x, yHigh);
-            ctxGraph.stroke();
-            ctxGraph.lineWidth = graph.width * 6 / graph.height;
-            ctxGraph.beginPath();
-            ctxGraph.moveTo(x, yOpen);
-            ctxGraph.lineTo(x, yClose);
-            ctxGraph.stroke();
-            x += xPixelsPerDiv;
           }
         }
 
