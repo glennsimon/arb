@@ -3,23 +3,43 @@
   </head>
   <body>
     <script>
+
+      // The following two additions to the Date prototype allow detection of DST
+      // NYC time zone is EST (UTC-05:00) and with daylight savings it is (UTC-04:00)
+      Date.prototype.stdTimezoneOffset = () => {
+        const jan = new Date(this.getFullYear(), 0, 1);
+        const jul = new Date(this.getFullYear(), 6, 1);
+        return Math.max(jan.getTimezoneOffset(), jul.getTimezoneOffset());
+      }
+      
+      Date.prototype.isDstObserved = function () {
+          return this.getTimezoneOffset() < this.stdTimezoneOffset();
+      }
+
+      // var today = new Date();
+      // if (today.isDstObserved()) { 
+      //     alert ("Daylight saving time!");
+      // }
+
       const candleBaseUrl = 'https://finnhub.io/api/v1/stock/candle?symbol=';
       
-      const now = Math.floor(Date.now() / 1000);
-      const aYearAgo = now - 365 * 24 * 60 * 60;
-      const thirtyDaysAgo = now - 30 * 24 * 60 * 60;
+      // today's date at 00:00:00 (midnight, no milliseconds)
+      const todayUTCMidnight = new Date().setUTCHours(0,0,0,0) / 1000;
+      const thirtyDaysAgo = todayUTCMidnight - 30 * 24 * 60 * 60;
       
-      fetch(candleBaseUrl + 'GOOG' + '&resolution=' + '1' + '&from=' + 1639699200 + '&to=' + now + '&token=c6aifiiad3id24fn2m00')
+      // get day data for the last month.  Last datapoint in each array will be latest data up to when it runs,
+      // meaning it will include partial day data if this runs during trading hours, or it will
+      // include the last full day of trading.  Timestamp (t) will be 00:00:00 UTC for each day with data.
+      fetch(candleBaseUrl + 'GOOG' + '&resolution=' + 'D' + '&from=' + thirtyDaysAgo + '&to=' + todayUTCMidnight + '&token=c6aifiiad3id24fn2m00')
       .then((response) => {
-        return response.json();
+        if (!response.ok) {
+          throw new Error(`HTTP error! status: ${response.status}`);
+        } else {
+          return response.json();
+        }
       })
       .then((obj) => {
-        // load the results array
         console.log(obj);
-        // results[symbol] = obj;
-        // if (symbols[0] in results && symbols[1] in results) {
-        //   processData();
-        // }
       })
       .catch((error) => {
         console.error('Error fetching data: ', error);

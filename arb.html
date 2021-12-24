@@ -78,7 +78,9 @@
         const lastValue = [0, 0];
   
         // declare object to contain results for fetched data
-        let results = {};
+        const results = {};
+        results[symbols[0]] = {};
+        results[symbols[1]] = {};
     
         // get handles for document elements used for stock price updates
         const goog = document.getElementById('goog');
@@ -140,139 +142,98 @@
             socket.send(JSON.stringify({'type':'unsubscribe', 'symbol': symbol}));
           }
         }
+
+        // my API key
+        const token = 'c6aifiiad3id24fn2m00';
+
+        // fetch and process json candle response from finnhub
+        const fetchAndDecode = (symbol, rez, from, to) => {
+          const url = 'https://finnhub.io/api/v1/stock/candle?symbol=';
+          return fetch(url + symbol + '&resolution=' + rez + '&from=' + from + '&to=' + to + '&token=' + token)
+          .then(response => {
+            if (!response.ok) {
+              throw new Error(`HTTP error! status: ${response.status}`);
+            } else {
+              return response.json();
+            }
+          })
+          .catch(e => {
+            console.log(`Problem with ${symbol}.${rez} fetch operation: ${e.message}`);
+          });
+        }
+
+        // Loads data from fetches into results
+        const loadData = async (rez, from, to) => {
+          let returnArray = await Promise.all([
+            fetchAndDecode(symbols[0], rez, from, to),
+            fetchAndDecode(symbols[1], rez, from, to)
+          ]);
+
+          for (index of [0, 1]) {
+            results[symbols[index]][rez] = returnArray[index];
+          }
+
+          if (rez !== 'D') {
+            // eliminate data points outside of trading hours or without corresponding
+            // timestamp in the other symbol
+            cullSpurious(symbols[0], symbols[1], rez);
+            cullSpurious(symbols[1], symbols[0], rez);
+          }
+        }
   
         // fetch candle data for symbols
-        const fetchCandles = () => {
-          // get current date and time
-          const now = Math.floor(Date.now() / 1000);
-    
-          // define data set
-          const candleBaseUrl = 'https://finnhub.io/api/v1/stock/candle?symbol=';
-          const secondsPerWeek = 7 * 24 * 60 * 60;
-          const aWeekAgo = now - secondsPerWeek;
-          const secondsPer30Days = 30 * 24 * 60 * 60;
-          const thirtyDaysAgo = now - secondsPer30Days;
-          const secondsPerYear = 365 * 24 * 60 * 60;
-          const aYearAgo = now - secondsPerYear;
-    
-          // fetch the data from finnhub
-          for (const symbol of symbols) {
-            results[symbol] = {};
-            // from date is a year ago, resolution is months
-            let from = now - 365 * 24 * 60 * 60;
-            let resolution = 'M';
+        const fetchCandles = async () => {
+          // today's date at 00:00:00 (midnight, no milliseconds)
+          const todayUTCMidnight = new Date().setUTCHours(0,0,0,0) / 1000;
+          const thirtyDaysAgo = todayUTCMidnight - 30 * 24 * 60 * 60;
+          const now = Math.floor(new Date() / 1000);
+          
+          // get the day data
+          await loadData('D', thirtyDaysAgo, todayUTCMidnight);
 
-            fetch(candleBaseUrl + symbol + '&resolution=' + resolution + '&from=' + from + '&to=' + now + '&token=c6aifiiad3id24fn2m00')
-            .then((response) => {
-              return response.json();
-            })
-            .then((obj) => {
-              // load the results array
-              // console.log(obj);
-              results[symbol][resolution] = obj;
-            })
-            .then(() => {
-              // from date is 30 days ago, resolution is days
-              from = now - 30 * 24 * 60 * 60;
-              resolution = 'D';
-              fetch(candleBaseUrl + symbol + '&resolution=' + resolution + '&from=' + from + '&to=' + now + '&token=c6aifiiad3id24fn2m00')
-                .then((response) => {
-                return response.json();
-              })
-              .then((obj) => {
-                // load the results array
-                // console.log(obj);
-                results[symbol][resolution] = obj;
-              })
-              .then(() => {
-                // from date last timestamp in 'D' data, resolution is minutes
-                from = results[symbol][resolution].t.slice(-1);
-                resolution = '1';
-                fetch(candleBaseUrl + symbol + '&resolution=' + resolution + '&from=' + from + '&to=' + now + '&token=c6aifiiad3id24fn2m00')
-                  .then((response) => {
-                  return response.json();
-                })
-                .then((obj) => {
-                  // load the results array
-                  // console.log(obj);
-                  results[symbol][resolution] = obj;
-                  if (results[symbols[0]].M && results[symbols[1]].M &&
-                      results[symbols[0]].D && results[symbols[1]].D &&
-                      results[symbols[0]]['1'] && results[symbols[1]]['1']) {
-                    processData();
-                  }
-                })
-                .catch((error) => {
-                  console.error('Error fetching data: ', error);
-                });
-              })
-              .catch((error) => {
-                console.error('Error fetching data: ', error);
-              });
-            })
-            .catch((error) => {
-              console.error('Error fetching data: ', error);
-            });
+          // get the quarter hour start time
+          const qHourStartTime = results[symbols[0]].D.t.slice(-1);
+
+          // get rid of last data point in day data,
+          // since it will be covered with quarter hour and minute data.
+          for (symbol of symbols) {
+            for (obj in results[symbol].D) {
+              if (typeof(results[symbol].D[obj]) === 'object') {
+                results[symbol].D[obj].pop();
+              }
+            }
           }
+    
+          // get the quarter hour data
+          await loadData('15', qHourStartTime, now);
+          
+          // get the minute data start time
+          const minuteStartTime = results[symbols[0]]['15'].t.slice(-1);
+
+          // get the minutes data
+          await loadData('1', minuteStartTime, now);
+
+          processData();
         }
 
         // Eliminate data elements from symbolA 1 minute data that are not included
         // in symbolB data, and are outside of normal exchange hours.
         // This only works in the Pacific time zone because of the hours and
         // minutes specified in the culling filter.
-        const cullSpurious = (symbolA, symbolB) => {
-          for (let index = results[symbolA]['1'].t.length - 1; index > -1; index--) {
-            const dateInSeconds = results[symbolA]['1'].t[index];
+        const cullSpurious = (symbolA, symbolB, period) => {
+          for (let index = results[symbolA][period].t.length - 1; index > -1; index--) {
+            const dateInSeconds = results[symbolA][period].t[index];
             const date = new Date(dateInSeconds * 1000);
             // culling filter
             if ((date.getHours() < 7 && date.getMinutes() < 31) ||
               date.getHours() < 6 ||
               (date.getHours() > 12 && date.getMinutes() > 0) ||
-              !results[symbolB]['1'].t.includes(dateInSeconds) || 
+              !results[symbolB][period].t.includes(dateInSeconds) || 
               date.getDay() === 0 ||
               date.getDay() === 6) {
-              for (elem in results[symbolA]['1']) {
-                if (typeof(results[symbolA]['1'][elem]) === 'object') {
-                  results[symbolA]['1'][elem].splice(index, 1);
-                }
-              }
-            }
-          }
-        }
-
-        // Returns an array of indices in last day of <results> spaced <minutes> apart
-        const idxEngine = (minutes) => {
-          // const firstMinute = results[symbols[0]].t[0];
-          const date = new Date(results[symbols[0]]['1'].t[0] * 1000);
-          const monthDayOffset = results[symbols[0]].M.t.length + results[symbols[0]].D.t.length;
-          const idxArray = [monthDayOffset];
-
-          let prevHour = date.getHours();
-          let prevMin = minutes * Math.floor(date.getMinutes() / minutes);
-          let incr = 1;
-          for (let idx = 0; idx < results[symbols[0]]['1'].t.length; idx++) {
-            const nextDate = new Date(results[symbols[0]]['1'].t[idx] * 1000);
-            let nextHour = nextDate.getHours();
-            let nextMin = nextDate.getMinutes();
-            if (minutes <= 60 && prevHour != nextHour && nextHour !== 13) { // time zone dependent (hour 13)
-              idxArray.push(monthDayOffset + idx + 1); // add 1 to include time until top of hour in data
-              prevHour = nextHour;
-              prevMin = minutes * Math.floor(nextMin / minutes);
-            } else if (nextMin - prevMin > minutes) {
-              idxArray.push(monthDayOffset + idx);
-              prevMin = minutes * Math.floor(nextMin / minutes);
-            }
-          }
-          return idxArray;
-        }
-
-        // get rid of extra data (partial month and day) at end of month and day arrays in results
-        const popLastMonthDay = () => {
-          for (symbol of symbols) {
-            for (per of ['M', 'D']) {
-              for (ary in results[symbol][per]) {
-                if (typeof(results[symbol][per][ary]) === 'object') {
-                  results[symbol][per][ary].pop();
+              for (elem in results[symbolA][period]) {
+                if (typeof(results[symbolA][period][elem]) === 'object') {
+                  results[symbolA][period][elem].splice(index, 1);
                 }
               }
             }
@@ -281,119 +242,57 @@
 
         // Performs multiple processing steps to filter and prep the results data for graphing
         const processData = () => {
-          // console.log(results.GOOG.c.slice(-10));
-          // console.log(results.GOOG.v.slice(-10));
-          // console.log(results.GOOGL.c.slice(-10));
-          // console.log(results.GOOGL.v.slice(-10));
-  
           // get initial values for prices and differences or handle off hours
           handleAfterHours();
 
-          // Eliminate spurious data
-          cullSpurious(symbols[0], symbols[1]);
-          cullSpurious(symbols[1], symbols[0]);
-  
           // console.log(results);
 
-          popLastMonthDay();
-  
-          // Declare and load arrays for indices of first occurrance of day/hour in results
-          // const dayIndices = idxEngine(24 * 60);
-          const qHourIndices = idxEngine(15);
-
-          // // get last month and last day index
-          // const lastMonthIndex = results[symbols[0]].M.t.length;
-          // const lastDayIndex = results[symbols[0]].M.t.length;
-
           for (symbol of symbols) {
-            results.timeStamps = results[symbol].M.t.concat(results[symbol].D.t).concat(results[symbol]['1'].t);
-            results[symbol].highs = results[symbol].M.h.concat(results[symbol].D.h).concat(results[symbol]['1'].h);
-            results[symbol].lows = results[symbol].M.l.concat(results[symbol].D.l).concat(results[symbol]['1'].l);
-            results[symbol].opens = results[symbol].M.o.concat(results[symbol].D.o).concat(results[symbol]['1'].o);
-            results[symbol].closes = results[symbol].M.c.concat(results[symbol].D.c).concat(results[symbol]['1'].c);
+            results.timeStamps = results[symbol].D.t.concat(results[symbol]['15'].t).concat(results[symbol]['1'].t);
+            results[symbol].highs = results[symbol].D.h.concat(results[symbol]['15'].h).concat(results[symbol]['1'].h);
+            results[symbol].lows = results[symbol].D.l.concat(results[symbol]['15'].l).concat(results[symbol]['1'].l);
+            results[symbol].opens = results[symbol].D.o.concat(results[symbol]['15'].o).concat(results[symbol]['1'].o);
+            results[symbol].closes = results[symbol].D.c.concat(results[symbol]['15'].c).concat(results[symbol]['1'].c);
           }
   
           // get diff data for each data point
+          const symA = results[symbols[0]];
+          const symB = results[symbols[1]];
           results.highDiff = results[symbols[0]].highs.map((n, i) =>
-            n - results[symbols[1]].highs[i] > results[symbols[0]].lows[i] - results[symbols[1]].lows[i] ?
-            n - results[symbols[1]].highs[i] : results[symbols[0]].lows[i] - results[symbols[1]].lows[i]
+            Math.max(
+              n - symB.highs[i], symA.lows[i] - symB.lows[i],
+              symA.opens[i] - symB.opens[i], symA.closes[i] - symB.closes[i]
+            )
           );
-          results.lowDiff = results[symbols[0]].lows.map((n, i) =>
-            n - results[symbols[1]].lows[i] < results[symbols[0]].highs[i] - results[symbols[1]].highs[i] ?
-            n - results[symbols[1]].lows[i] : results[symbols[0]].highs[i] - results[symbols[1]].highs[i]
+          results.lowDiff = symA.lows.map((n, i) =>
+            Math.min(
+              n - symB.lows[i], symA.highs[i] - symB.highs[i],
+              symA.opens[i] - symB.opens[i], symA.closes[i] - symB.closes[i]
+            )
           );
-          results.openDiff = results[symbols[0]].opens.map((n, i) => n - results[symbols[1]].opens[i]);  // subract low GOOG from low GOOGL
-          results.closeDiff = results[symbols[0]].closes.map((n, i) => n - results[symbols[1]].closes[i]);  // subract low GOOG from low GOOGL
+          results.openDiff = symA.opens.map((n, i) => n - symB.opens[i]);  // subract low GOOG from low GOOGL
+          results.closeDiff = symA.closes.map((n, i) => n - symB.closes[i]);  // subract low GOOG from low GOOGL
 
-          results.maxY = 0;
-          results.minY = 0;
+
+          results.maxY = Math.max(...results.highDiff);
+          results.minY = Math.min(...results.lowDiff);
   
-          // load months data
-          let startIndex = 1;
-          let endIndex = results[symbols[0]].M.t.length;
-          loadData('months', startIndex, endIndex);
-
-          // load days data
-          startIndex = endIndex;
-          endIndex = startIndex + results[symbols[0]].D.t.length;
-          loadData('days', startIndex, endIndex);
-
-          // load qHours data
-          results.qHours = {};
-          for (name of ['timeStamps', 'lowDiff', 'highDiff', 'openDiff', 'closeDiff']) {
-            results.qHours[name] = [];
-          }
-          for (let idx = 0; idx < qHourIndices.length; idx++) {
-            results.qHours.timeStamps.push(results.timeStamps[qHourIndices[idx]]);
-            const highY = Math.max(...results.highDiff.slice(qHourIndices[idx], qHourIndices[idx + 1]));
-            const lowY = Math.min(...results.lowDiff.slice(qHourIndices[idx], qHourIndices[idx + 1]));
-            const openY = results.openDiff[qHourIndices[idx]];
-            // closeIndex calc is to make sure the close is captured for the last minute of data
-            const closeIndex =
-              qHourIndices[idx] === results.timeStamps.length - 1 ?
-              qHourIndices[idx] : qHourIndices[idx + 1] - 1;
-            const closeY = results.closeDiff[closeIndex];
-            results.qHours.highDiff.push(highY);
-            results.qHours.lowDiff.push(lowY);
-            results.qHours.openDiff.push(openY);
-            results.qHours.closeDiff.push(closeY);
-            results.maxY = highY > results.maxY ? highY : results.maxY;
-            results.minY = lowY < results.minY ? lowY : results.minY;
-          }
-
-          // load minutes data
-          const resultsLength = results.timeStamps.length;
-          startIndex = resultsLength - 15;
-          startIndex = startIndex > endIndex ? startIndex : endIndex;
-          endIndex = results.timeStamps.length;
-          loadData('minutes', startIndex, endIndex);
-
           console.log(results);
           drawGraph();
           console.log('done');
         }
 
-        const loadData = (dataName, startIndex, endIndex) => {
-          results[dataName] = {};
-          results[dataName].timeStamps = results.timeStamps.slice(startIndex, endIndex);
-          for (name of ['lowDiff', 'highDiff', 'openDiff', 'closeDiff']) {
-            results[dataName][name] = results[name].slice(startIndex, endIndex);
-            const highY = Math.max(...results[dataName][name]);
-            const lowY = Math.min(...results[dataName][name]);
-            results.maxY = highY > results.maxY ? highY : results.maxY;
-            results.minY = lowY < results.minY ? lowY : results.minY;
-          }
-        }
-
         window.onresize = () => {
-          graph.width = window.innerWidth;
-          graph.height = window.innerHeight < window.innerWidth ?
-            0.75 * window.innerHeight : 0.84 * window.innerHeight;
-          leftMargin = 0.08 * graph.width;
-          topMargin = 0.04 * graph.height;
-          plotWidth = graph.width - 1.25 * leftMargin;
-          plotHeight = graph.height - 1.5 * topMargin;
-          drawGraph();
+          if (results.timeStamps) {
+            graph.width = window.innerWidth;
+            graph.height = window.innerHeight < window.innerWidth ?
+              0.75 * window.innerHeight : 0.84 * window.innerHeight;
+            leftMargin = 0.08 * graph.width;
+            topMargin = 0.04 * graph.height;
+            plotWidth = graph.width - 1.25 * leftMargin;
+            plotHeight = graph.height - 1.5 * topMargin;
+            drawGraph();
+          }
         }
         
         // get the graph canvas and initialize its size
@@ -410,10 +309,7 @@
         let plotHeight = graph.height - 1.5 * topMargin;
 
         const drawGraph = () => {
-          let plotDataLength = 0;
-          for (name of ['months', 'days', 'qHours', 'minutes']) {
-            plotDataLength += results[name].timeStamps.length;
-          }
+          const plotDataLength = results.timeStamps.length;
           ctxGraph.clearRect(0, 0, graph.width, graph.height);
           const xPixelsPerDiv = plotWidth / (plotDataLength + 1);
           let x = leftMargin + xPixelsPerDiv / 2;
@@ -422,26 +318,20 @@
     
           const graphMinY = 10 * Math.floor(results.minY / 10);
           const graphMaxY = 10 * Math.ceil(results.maxY / 10);
-          const graphRange = graphMaxY - graphMinY;
-          gParams.graphRange = graphRange;
-          const graphZeroRatio = graphMinY < 0 ? graphMaxY / graphRange : 1;
-          const yPxPerDollar = plotHeight / graphRange;
-          gParams.graphZeroRatio = graphZeroRatio;
-          gParams.yPxPerDollar = yPxPerDollar;
+          gParams.graphRange = graphMaxY - graphMinY;
+          gParams.graphZeroRatio = graphMinY < 0 ? graphMaxY / gParams.graphRange : 1;
+          gParams.yPxPerDollar = plotHeight / gParams.graphRange;
   
           // Draw shading
-          const monthsWidth = results.months.timeStamps.length * xPixelsPerDiv;
-          const daysWidth = results.days.timeStamps.length * xPixelsPerDiv;
-          const qHoursWidth = results.qHours.timeStamps.length * xPixelsPerDiv;
-          const minutesWidth = results.minutes.timeStamps.length * xPixelsPerDiv;
-          ctxGraph.fillStyle = 'rgba(0,0,0,0.4)';
-          ctxGraph.fillRect(leftMargin, topMargin, monthsWidth, plotHeight);
+          const daysWidth = results[symbols[0]].D.t.length * xPixelsPerDiv;
+          const qHoursWidth = results[symbols[0]]['15'].t.length * xPixelsPerDiv;
+          const minutesWidth = results[symbols[0]]['1'].t.length * xPixelsPerDiv;
           ctxGraph.fillStyle = 'rgba(0,0,0,0.3)';
-          ctxGraph.fillRect(leftMargin + monthsWidth, topMargin, daysWidth, plotHeight);
+          ctxGraph.fillRect(leftMargin, topMargin, daysWidth, plotHeight);
           ctxGraph.fillStyle = 'rgba(0,0,0,0.2)';
-          ctxGraph.fillRect(leftMargin + monthsWidth + daysWidth, topMargin, qHoursWidth, plotHeight);
+          ctxGraph.fillRect(leftMargin + daysWidth, topMargin, qHoursWidth, plotHeight);
           ctxGraph.fillStyle = 'rgba(0,0,0,0.1)';
-          ctxGraph.fillRect(leftMargin + monthsWidth + daysWidth + qHoursWidth, topMargin,
+          ctxGraph.fillRect(leftMargin + daysWidth + qHoursWidth, topMargin,
             minutesWidth + xPixelsPerDiv, plotHeight);
   
           // Draw axes and tick marks
@@ -452,44 +342,41 @@
           ctxGraph.beginPath();
           ctxGraph.moveTo(leftMargin, topMargin + plotHeight);
           ctxGraph.lineTo(leftMargin, topMargin);
-          ctxGraph.moveTo(leftMargin, topMargin + plotHeight * graphZeroRatio);
-          ctxGraph.lineTo(leftMargin + plotWidth, topMargin + plotHeight * graphZeroRatio);
+          ctxGraph.moveTo(leftMargin, topMargin + plotHeight * gParams.graphZeroRatio);
+          ctxGraph.lineTo(leftMargin + plotWidth, topMargin + plotHeight * gParams.graphZeroRatio);
           ctxGraph.stroke();
           const ticks = graphMaxY - graphMinY + 1;
           for (let tick = 0; tick < ticks; tick++) {
             if (tick % 10 === 0) {
-              ctxGraph.moveTo(0.9 * leftMargin, topMargin + tick * yPxPerDollar);
-              ctxGraph.lineTo(leftMargin, topMargin + tick * yPxPerDollar);
+              ctxGraph.moveTo(0.9 * leftMargin, topMargin + tick * gParams.yPxPerDollar);
+              ctxGraph.lineTo(leftMargin, topMargin + tick * gParams.yPxPerDollar);
               ctxGraph.stroke();
               ctxGraph.textBaseline = 'middle';
               ctxGraph.textAlign = 'right';
               const fontHeight = plotWidth > plotHeight ? 0.05 * plotHeight : 0.05 * plotWidth;
               ctxGraph.font = '' + fontHeight + 'px sans-serif';
-              ctxGraph.fillText('' + graphMaxY - tick, 0.8 * leftMargin, topMargin + tick * yPxPerDollar);
+              ctxGraph.fillText('' + graphMaxY - tick, 0.8 * leftMargin, topMargin + tick * gParams.yPxPerDollar);
             }
           }
 
           // Draw data values
-          for (period of ['months', 'days', 'qHours', 'minutes']) {
-            const graphSub = results[period];
-            for (let index = 0; index < graphSub.timeStamps.length; index++) {
-              const yLow = topMargin + (graphZeroRatio * graphRange - graphSub.lowDiff[index]) * yPxPerDollar;
-              const yHigh = topMargin + (graphZeroRatio * graphRange - graphSub.highDiff[index]) * yPxPerDollar;
-              const yOpen = topMargin + (graphZeroRatio * graphRange - graphSub.openDiff[index]) * yPxPerDollar;
-              const yClose = topMargin + (graphZeroRatio * graphRange - graphSub.closeDiff[index]) * yPxPerDollar;
-              ctxGraph.strokeStyle = yOpen >= yClose ? 'green' : 'red';
-              ctxGraph.lineWidth = graph.width * 2 / graph.height;
-              ctxGraph.beginPath();
-              ctxGraph.moveTo(x, yLow);
-              ctxGraph.lineTo(x, yHigh);
-              ctxGraph.stroke();
-              ctxGraph.lineWidth = graph.width * 6 / graph.height;
-              ctxGraph.beginPath();
-              ctxGraph.moveTo(x, yOpen);
-              ctxGraph.lineTo(x, yClose);
-              ctxGraph.stroke();
-              x += xPixelsPerDiv;
-            }
+          for (let index = 0; index < results.timeStamps.length; index++) {
+            const yLow = topMargin + (gParams.graphZeroRatio * gParams.graphRange - results.lowDiff[index]) * gParams.yPxPerDollar;
+            const yHigh = topMargin + (gParams.graphZeroRatio * gParams.graphRange - results.highDiff[index]) * gParams.yPxPerDollar;
+            const yOpen = topMargin + (gParams.graphZeroRatio * gParams.graphRange - results.openDiff[index]) * gParams.yPxPerDollar;
+            const yClose = topMargin + (gParams.graphZeroRatio * gParams.graphRange - results.closeDiff[index]) * gParams.yPxPerDollar;
+            ctxGraph.strokeStyle = yOpen >= yClose ? 'green' : 'red';
+            ctxGraph.lineWidth = graph.width * 2 / graph.height;
+            ctxGraph.beginPath();
+            ctxGraph.moveTo(x, yLow);
+            ctxGraph.lineTo(x, yHigh);
+            ctxGraph.stroke();
+            ctxGraph.lineWidth = graph.width * 6 / graph.height;
+            ctxGraph.beginPath();
+            ctxGraph.moveTo(x, yOpen);
+            ctxGraph.lineTo(x, yClose);
+            ctxGraph.stroke();
+            x += xPixelsPerDiv;
           }
         }
 
