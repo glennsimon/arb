@@ -1,34 +1,414 @@
 <html>
   <head>
+    <style>
+      html {
+        box-sizing: border-box;
+      }
+      
+      *,
+      *:before,
+      *:after {
+        box-sizing: inherit;
+      }
+      
+      body {
+        font-family: "Roboto", "Helvetica", "Arial", Sans-Serif;
+        background-color: #f6f6f6;
+        font-size: 16px;
+        margin: 0;
+      }
+      
+      .container {
+        display: flex;
+        flex-flow: row wrap;
+        text-align: center;
+      }
+
+      .container > #diff, .container > #nytime {
+        flex: 1 100%;
+      }
+
+      .ticker, .price {
+        flex: 1 50%;
+      }
+
+      .ticker {
+        font-size: 6vh;
+        height: 10vh;
+        padding: 3vh 0 0;
+      }
+
+      .price {
+        font-size: 5vh;
+        height: 6vh;
+      }
+
+      #diff {
+        font-size: 4vh;
+      }
+
+      #nytime {
+        font-size: 3vh;
+      }
+
+      @media screen and (max-aspect-ratio: 1/1) {
+        .ticker { font-size: 4vh; height: 6vh; padding: 2vh 0 0;}
+        .price { font-size: 3vh; height: 4vh; }
+        #diff { font-size: 2.5vh; }
+        #nytime { font-size: 2vh; }
+      }
+    </style>
   </head>
   <body>
-    <button onclick="notifyMe()">Notify me!</button>
+    <div class='container'>
+      <div class='ticker'>GOOG</div>
+      <div class='ticker'>GOOGL</div>
+      <div class='price' id='goog'></div>
+      <div class='price' id='googl'></div>
+      <div id='diff'></div>
+      <div id='nytime'></div>
+      <canvas id='graph'></canvas>
+    </div>
     <script>
-      function notifyMe() {
-        // Let's check if the browser supports notifications
-        if (!("Notification" in window)) {
-          alert("This browser does not support desktop notification");
-        }
-      
-        // Let's check whether notification permissions have already been granted
-        else if (Notification.permission === "granted") {
-          // If it's okay let's create a notification
-          var notification = new Notification("Hi there!");
-        }
-      
-        // Otherwise, we need to ask the user for permission
-        else if (Notification.permission !== "denied") {
-          Notification.requestPermission().then(function (permission) {
-            // If the user accepts, let's create a notification
-            if (permission === "granted") {
-              var notification = new Notification("Hi there!");
+      const arb = () => {
+        // two symbols to compare - program written specifically to compare GOOG and GOOGL
+        const symbols = ['GOOG', 'GOOGL'];
+
+        // declare array for last price of each stock, initialized at 0
+        const lastValue = [0, 0];
+  
+        // declare object to contain results for fetched data
+        const results = {};
+        results[symbols[0]] = {};
+        results[symbols[1]] = {};
+    
+        // get handles for document elements used for stock price updates
+        const goog = document.getElementById('goog');
+        const googl = document.getElementById('googl');
+        const diff = document.getElementById('diff');
+        const nYTime = document.getElementById('nytime');
+    
+        // Subscribe to web socket for real-time stock data
+        // parameter is array of stock symbols, capitalized
+        const ws = () => {
+          // get handle for web socket - needed to subscribe to stock prices
+          const socket = new WebSocket('wss://ws.finnhub.io?token=c6aifiiad3id24fn2m00');
+
+          // set default values for document elements
+          goog.innerText = 'No data yet';
+          googl.innerText = 'No data yet';
+          diff.innerText = 'Diff: No data yet';
+          nYTime.innerText = `Time in NY: ${new Date().toLocaleString('en-US', {timeZone: 'America/New_York'})}`;
+          
+          // open an event listener on the web socket and subscribe to stock price updates
+          socket.addEventListener('open', (event) => {
+            socket.send(JSON.stringify({'type':'subscribe', 'symbol':symbols[0]}));
+            socket.send(JSON.stringify({'type':'subscribe', 'symbol':symbols[1]}));
+          });
+    
+          let minutes;
+
+          // handle stock price update messages from the web socket.
+          socket.addEventListener('message', (event) => {
+            const parsedObj = JSON.parse(event.data);
+            if (parsedObj.data) {
+              let nowMinutes = new Date().getMinutes();
+              for (const obj of parsedObj.data) {
+                if (obj.s === symbols[0]) {
+                  goog.innerText = '' + (obj.p).toFixed(2);
+                  lastValue[0] = obj.p;
+                }
+                if (obj.s === symbols[1]) {
+                  googl.innerText = '' + (obj.p).toFixed(2);
+                  lastValue[1] = obj.p;
+                }
+                diff.innerText = lastValue[0] === 0 ? 'N/A' :
+                  `Diff: ${(lastValue[0] - lastValue[1]).toFixed(2)} (${(100 * (lastValue[0] - lastValue[1]) / lastValue[0]).toFixed(2)} %)`;
+                nYTime.innerText = `NYC Time: ${new Date(obj.t).toLocaleString('en-US', {timeZone: 'America/New_York'})}`;
+                drawPoint();
+              }
+              if (minutes && (minutes < nowMinutes || minutes - nowMinutes === 59)) {
+                results = {};
+                fetchCandles();
+              }
+              minutes = nowMinutes;
+            } else {
+              console.log('non-data object: ' + event.data);
             }
           });
+    
+          // helper function to unsubscribe if needed
+          const unsubscribe = (symbol) => {
+            socket.send(JSON.stringify({'type':'unsubscribe', 'symbol': symbol}));
+          }
         }
-      
-        // At last, if the user has denied notifications, and you
-        // want to be respectful there is no need to bother them any more.
+
+        // my API key
+        const token = 'c6aifiiad3id24fn2m00';
+
+        // fetch and process json candle response from finnhub
+        const fetchAndDecode = (symbol, rez, from, to) => {
+          const url = 'https://finnhub.io/api/v1/stock/candle?symbol=';
+          return fetch(url + symbol + '&resolution=' + rez + '&from=' + from + '&to=' + to + '&token=' + token)
+          .then(response => {
+            if (!response.ok) {
+              throw new Error(`HTTP error! status: ${response.status}`);
+            } else {
+              return response.json();
+            }
+          })
+          .catch(e => {
+            console.log(`Problem with ${symbol}.${rez} fetch operation: ${e.message}`);
+          });
+        }
+
+        // Loads data from fetches into results
+        const loadData = async (rez, from, to) => {
+          let returnArray = await Promise.all([
+            fetchAndDecode(symbols[0], rez, from, to),
+            fetchAndDecode(symbols[1], rez, from, to)
+          ]);
+
+          for (index of [0, 1]) {
+            results[symbols[index]][rez] = returnArray[index];
+          }
+
+          if (rez !== 'D') {
+            // eliminate data points outside of trading hours or without corresponding
+            // timestamp in the other symbol
+            cullSpurious(symbols[0], symbols[1], rez);
+            cullSpurious(symbols[1], symbols[0], rez);
+          }
+        }
+  
+        // fetch candle data for symbols
+        const fetchCandles = async () => {
+          // today's date at 00:00:00 (midnight, no milliseconds)
+          const todayUTCMidnight = new Date().setUTCHours(0,0,0,0) / 1000;
+          const thirtyDaysAgo = todayUTCMidnight - 30 * 24 * 60 * 60;
+          const now = Math.floor(new Date() / 1000);
+          
+          // get the day data
+          await loadData('D', thirtyDaysAgo, todayUTCMidnight);
+
+          // get the quarter hour start time
+          const qHourStartTime = results[symbols[0]].D.t.slice(-1);
+
+          // get rid of last data point in day data,
+          // since it will be covered with quarter hour and minute data.
+          for (symbol of symbols) {
+            for (obj in results[symbol].D) {
+              if (typeof(results[symbol].D[obj]) === 'object') {
+                results[symbol].D[obj].pop();
+              }
+            }
+          }
+    
+          // get the quarter hour data
+          await loadData('15', qHourStartTime, now);
+          
+          // get the minute data start time
+          const minuteStartTime = results[symbols[0]]['15'].t.slice(-1);
+
+          // get the minutes data
+          await loadData('1', minuteStartTime, now);
+
+          processData();
+        }
+
+        // Eliminate data elements from symbolA 1 minute data that are not included
+        // in symbolB data, and are outside of normal exchange hours.
+        // This only works in the Pacific time zone because of the hours and
+        // minutes specified in the culling filter.
+        const cullSpurious = (symbolA, symbolB, period) => {
+          for (let index = results[symbolA][period].t.length - 1; index > -1; index--) {
+            const dateInSeconds = results[symbolA][period].t[index];
+            const date = new Date(dateInSeconds * 1000);
+            // culling filter
+            if ((date.getHours() < 7 && date.getMinutes() < 31) ||
+              date.getHours() < 6 ||
+              (date.getHours() > 12 && date.getMinutes() > 0) ||
+              !results[symbolB][period].t.includes(dateInSeconds) || 
+              date.getDay() === 0 ||
+              date.getDay() === 6) {
+              for (elem in results[symbolA][period]) {
+                if (typeof(results[symbolA][period][elem]) === 'object') {
+                  results[symbolA][period][elem].splice(index, 1);
+                }
+              }
+            }
+          }
+        }
+
+        // Performs multiple processing steps to filter and prep the results data for graphing
+        const processData = () => {
+          // get initial values for prices and differences or handle off hours
+          handleAfterHours();
+
+          // console.log(results);
+
+          for (symbol of symbols) {
+            results.timeStamps = results[symbol].D.t.concat(results[symbol]['15'].t).concat(results[symbol]['1'].t);
+            results[symbol].highs = results[symbol].D.h.concat(results[symbol]['15'].h).concat(results[symbol]['1'].h);
+            results[symbol].lows = results[symbol].D.l.concat(results[symbol]['15'].l).concat(results[symbol]['1'].l);
+            results[symbol].opens = results[symbol].D.o.concat(results[symbol]['15'].o).concat(results[symbol]['1'].o);
+            results[symbol].closes = results[symbol].D.c.concat(results[symbol]['15'].c).concat(results[symbol]['1'].c);
+          }
+  
+          // get diff data for each data point
+          const symA = results[symbols[0]];
+          const symB = results[symbols[1]];
+          results.highDiff = results[symbols[0]].highs.map((n, i) =>
+            Math.max(
+              n - symB.highs[i], symA.lows[i] - symB.lows[i],
+              symA.opens[i] - symB.opens[i], symA.closes[i] - symB.closes[i]
+            )
+          );
+          results.lowDiff = symA.lows.map((n, i) =>
+            Math.min(
+              n - symB.lows[i], symA.highs[i] - symB.highs[i],
+              symA.opens[i] - symB.opens[i], symA.closes[i] - symB.closes[i]
+            )
+          );
+          results.openDiff = symA.opens.map((n, i) => n - symB.opens[i]);  // subract low GOOG from low GOOGL
+          results.closeDiff = symA.closes.map((n, i) => n - symB.closes[i]);  // subract low GOOG from low GOOGL
+
+
+          results.maxY = Math.max(...results.highDiff);
+          results.minY = Math.min(...results.lowDiff);
+  
+          console.log(results);
+          drawGraph();
+          console.log('done');
+        }
+
+        window.onresize = () => {
+          if (results.timeStamps) {
+            graph.width = window.innerWidth;
+            graph.height = window.innerHeight < window.innerWidth ?
+              0.75 * window.innerHeight : 0.84 * window.innerHeight;
+            leftMargin = 0.08 * graph.width;
+            topMargin = 0.04 * graph.height;
+            plotWidth = graph.width - 1.25 * leftMargin;
+            plotHeight = graph.height - 1.5 * topMargin;
+            drawGraph();
+          }
+        }
+        
+        // get the graph canvas and initialize its size
+        const graph = document.getElementById('graph');
+        graph.width = window.innerWidth;
+        graph.height = window.innerHeight < window.innerWidth ?
+          0.75 * window.innerHeight : 0.84 * window.innerHeight;
+        const ctxGraph = graph.getContext('2d');
+        const gParams = {};
+
+        let leftMargin = 0.08 * graph.width;
+        let topMargin = 0.04 * graph.height;
+        let plotWidth = graph.width - 1.25 * leftMargin;
+        let plotHeight = graph.height - 1.5 * topMargin;
+
+        const drawGraph = () => {
+          const plotDataLength = results.timeStamps.length;
+          ctxGraph.clearRect(0, 0, graph.width, graph.height);
+          const xPixelsPerDiv = plotWidth / (plotDataLength + 1);
+          let x = leftMargin + xPixelsPerDiv / 2;
+          gParams.xPixelsPerDiv = xPixelsPerDiv;
+          gParams.dataLength = plotDataLength;
+    
+          const graphMinY = 10 * Math.floor(results.minY / 10);
+          const graphMaxY = 10 * Math.ceil(results.maxY / 10);
+          gParams.graphRange = graphMaxY - graphMinY;
+          gParams.graphZeroRatio = graphMinY < 0 ? graphMaxY / gParams.graphRange : 1;
+          gParams.yPxPerDollar = plotHeight / gParams.graphRange;
+  
+          // Draw shading
+          const daysWidth = results[symbols[0]].D.t.length * xPixelsPerDiv;
+          const qHoursWidth = results[symbols[0]]['15'].t.length * xPixelsPerDiv;
+          const minutesWidth = results[symbols[0]]['1'].t.length * xPixelsPerDiv;
+          ctxGraph.fillStyle = 'rgba(0,0,0,0.3)';
+          ctxGraph.fillRect(leftMargin, topMargin, daysWidth, plotHeight);
+          ctxGraph.fillStyle = 'rgba(0,0,0,0.2)';
+          ctxGraph.fillRect(leftMargin + daysWidth, topMargin, qHoursWidth, plotHeight);
+          ctxGraph.fillStyle = 'rgba(0,0,0,0.1)';
+          ctxGraph.fillRect(leftMargin + daysWidth + qHoursWidth, topMargin,
+            minutesWidth + xPixelsPerDiv, plotHeight);
+  
+          // Draw axes and tick marks
+          ctxGraph.fillStyle = 'black';
+          ctxGraph.strokeStyle = 'black';
+          ctxGraph.lineCap = 'square';
+          ctxGraph.lineWidth = 1;
+          ctxGraph.beginPath();
+          ctxGraph.moveTo(leftMargin, topMargin + plotHeight);
+          ctxGraph.lineTo(leftMargin, topMargin);
+          ctxGraph.moveTo(leftMargin, topMargin + plotHeight * gParams.graphZeroRatio);
+          ctxGraph.lineTo(leftMargin + plotWidth, topMargin + plotHeight * gParams.graphZeroRatio);
+          ctxGraph.stroke();
+          const ticks = graphMaxY - graphMinY + 1;
+          for (let tick = 0; tick < ticks; tick++) {
+            if (tick % 10 === 0) {
+              ctxGraph.moveTo(0.9 * leftMargin, topMargin + tick * gParams.yPxPerDollar);
+              ctxGraph.lineTo(leftMargin, topMargin + tick * gParams.yPxPerDollar);
+              ctxGraph.stroke();
+              ctxGraph.textBaseline = 'middle';
+              ctxGraph.textAlign = 'right';
+              const fontHeight = plotWidth > plotHeight ? 0.05 * plotHeight : 0.05 * plotWidth;
+              ctxGraph.font = '' + fontHeight + 'px sans-serif';
+              ctxGraph.fillText('' + graphMaxY - tick, 0.8 * leftMargin, topMargin + tick * gParams.yPxPerDollar);
+            }
+          }
+
+          // Draw data values
+          for (let index = 0; index < results.timeStamps.length; index++) {
+            const yLow = topMargin + (gParams.graphZeroRatio * gParams.graphRange - results.lowDiff[index]) * gParams.yPxPerDollar;
+            const yHigh = topMargin + (gParams.graphZeroRatio * gParams.graphRange - results.highDiff[index]) * gParams.yPxPerDollar;
+            const yOpen = topMargin + (gParams.graphZeroRatio * gParams.graphRange - results.openDiff[index]) * gParams.yPxPerDollar;
+            const yClose = topMargin + (gParams.graphZeroRatio * gParams.graphRange - results.closeDiff[index]) * gParams.yPxPerDollar;
+            ctxGraph.strokeStyle = yOpen >= yClose ? 'green' : 'red';
+            ctxGraph.lineWidth = graph.width * 2 / graph.height;
+            ctxGraph.beginPath();
+            ctxGraph.moveTo(x, yLow);
+            ctxGraph.lineTo(x, yHigh);
+            ctxGraph.stroke();
+            ctxGraph.lineWidth = graph.width * 6 / graph.height;
+            ctxGraph.beginPath();
+            ctxGraph.moveTo(x, yOpen);
+            ctxGraph.lineTo(x, yClose);
+            ctxGraph.stroke();
+            x += xPixelsPerDiv;
+          }
+        }
+
+        // Draws a point on the graph when the web socket gets a new value
+        const drawPoint = () => {
+          const instDiff = lastValue[0] !== 0 && lastValue[1] !== 0 ? lastValue[0] - lastValue[1] : null;
+          if (instDiff) {
+            ctxGraph.fillStyle = 'rgba(255,255,0,.2)';
+            ctxGraph.beginPath();
+            ctxGraph.arc(
+              leftMargin + gParams.xPixelsPerDiv * (0.5 + gParams.dataLength),
+              topMargin + (gParams.graphZeroRatio * gParams.graphRange - instDiff) * gParams.yPxPerDollar,
+              3, 0, 2 * Math.PI
+            );
+            ctxGraph.fill();
+          }
+        }
+
+        const handleAfterHours = () => {
+          if (lastValue[0] === 0 && lastValue[1] === 0) {
+            const googPrice = results[symbols[0]]['1'].c.at(-1);
+            const googlPrice = results[symbols[1]]['1'].c.at(-1);
+            goog.innerText = '' + (googPrice).toFixed(2);
+            googl.innerText = '' + (googlPrice).toFixed(2);
+            diff.innerText = `Diff: ${(googPrice - googlPrice).toFixed(2)} (${(100 * (googPrice - googlPrice) / googPrice).toFixed(2)} %)`;
+          }
+        }
+
+        ws();
+        fetchCandles();
       }
+      arb();
     </script>
   </body>
 </html>
