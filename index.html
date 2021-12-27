@@ -129,7 +129,8 @@
                 drawPoint();
               }
               if (minutes && (minutes < nowMinutes || minutes - nowMinutes === 59)) {
-                results = {};
+                results[symbols[0]] = {};
+                results[symbols[1]] = {};
                 fetchCandles();
               }
               minutes = nowMinutes;
