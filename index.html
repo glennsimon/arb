@@ -211,7 +211,7 @@
           
           // get the minute data start time
           const minuteStartTime = results[symbols[0]]['15'].t.length > 0 ?
-              results[symbols[0]]['15'].t.slice(-1) : 0;
+              results[symbols[0]]['15'].t.slice(-1) : qHourStartTime;
 
           // get the minutes data
           await loadData('1', minuteStartTime, now);
