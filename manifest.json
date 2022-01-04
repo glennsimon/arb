@@ -1,20 +1,16 @@
 {
-  "name": "Crosswords WF",
-  "short_name": "Xwords WF",
+  "name": "Arb",
+  "short_name": "Arb",
   "icons": [{
-        "src": "images/touch/icon-128x128.png",
+        "src": "images/icon-128x128.png",
         "sizes": "128x128",
         "type": "image/png"
       }, {
-        "src": "images/touch/apple-touch-icon.png",
+        "src": "images/apple-touch-icon.png",
         "sizes": "152x152",
         "type": "image/png"
       }, {
-        "src": "images/touch/ms-touch-icon-144x144-precomposed.png",
-        "sizes": "144x144",
-        "type": "image/png"
-      }, {
-        "src": "images/touch/chrome-touch-icon-192x192.png",
+        "src": "images/chrome-touch-icon-192x192.png",
         "sizes": "192x192",
         "type": "image/png"
       }],
@@ -22,6 +18,5 @@
   "display": "standalone",
   "orientation": "portrait",
   "background_color": "#3E4EB8",
-  "theme_color": "#2F3BA2",
-  "gcm_sender_id": "103953800507"
+  "theme_color": "#2F3BA2"
 }
