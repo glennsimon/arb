@@ -245,6 +245,7 @@
             filter(val => !tStamps[1].includes(val)).
             concat(tStamps[1].filter(val => !tStamps[0].includes(val)));
 
+          // eliminate day data that is uniqe to only one of the symbols
           while (uniqueVals.length > 0) {
             const ts = uniqueVals.pop();
             for (symbol of symbols) {
