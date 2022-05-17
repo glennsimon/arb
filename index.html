@@ -236,6 +236,28 @@
               }
             }
           }
+
+          const tStamps = [];
+          tStamps[0] = results[symbols[0]].D.t;
+          tStamps[1] = results[symbols[1]].D.t;
+
+          const uniqueVals = tStamps[0].
+            filter(val => !tStamps[1].includes(val)).
+            concat(tStamps[1].filter(val => !tStamps[0].includes(val)));
+
+          while (uniqueVals.length > 0) {
+            const ts = uniqueVals.pop();
+            for (symbol of symbols) {
+              if (results[symbol].D.t.includes(ts)) {
+                const idx = results[symbol].D.t.indexOf(ts);
+                for (obj in results[symbol].D) {
+                  if (typeof(results[symbol].D[obj]) === 'object') {
+                    results[symbol].D[obj].splice(idx, 1);
+                  }
+                } 
+              }
+            }
+          }
     
           // get the quarter hour data
           await loadData('15', qHourStartTime, now);
