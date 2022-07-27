@@ -373,8 +373,8 @@
           gParams.xPixelsPerDiv = xPixelsPerDiv;
           gParams.dataLength = plotDataLength;
     
-          const graphMinY = 10 * Math.floor(results.minY / 10);
-          const graphMaxY = 10 * Math.ceil(results.maxY / 10);
+          const graphMinY = Math.floor(results.minY); // removed 10x factor
+          const graphMaxY = Math.ceil(results.maxY); // removed 10x factor
           gParams.graphRange = graphMaxY - graphMinY;
           gParams.graphZeroRatio = graphMinY < 0 ? graphMaxY / gParams.graphRange : 1;
           gParams.yPxPerDollar = plotHeight / gParams.graphRange;
@@ -404,7 +404,7 @@
           ctxGraph.stroke();
           const ticks = graphMaxY - graphMinY + 1;
           for (let tick = 0; tick < ticks; tick++) {
-            if (tick % 10 === 0) {
+            // if (tick % 10 === 0) { // unneccisary if 10x factor not needed
               ctxGraph.moveTo(0.9 * leftMargin, topMargin + tick * gParams.yPxPerDollar);
               ctxGraph.lineTo(leftMargin, topMargin + tick * gParams.yPxPerDollar);
               ctxGraph.stroke();
@@ -413,7 +413,7 @@
               const fontHeight = plotWidth > plotHeight ? 0.05 * plotHeight : 0.05 * plotWidth;
               ctxGraph.font = '' + fontHeight + 'px sans-serif';
               ctxGraph.fillText('' + graphMaxY - tick, 0.8 * leftMargin, topMargin + tick * gParams.yPxPerDollar);
-            }
+            // }
           }
 
           // Draw data values
